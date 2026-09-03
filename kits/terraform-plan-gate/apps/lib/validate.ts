@@ -61,6 +61,25 @@ export function validateReviewResult(raw: unknown): ReviewResult {
   const changes = raw.changes.map(changeOf);
   const totalChanges = typeof raw.totalChanges === "number" ? raw.totalChanges : changes.length;
   if (totalChanges !== changes.length) throw new Error(`The flow reported ${totalChanges} changes but returned ${changes.length}.`);
+
+  // The counts and the verdict are derived from the changes in the flow's
+  // assemble node. Re-derive them here so a result that contradicts its own
+  // changes (an "allow" carrying a critical change) is rejected, not rendered.
+  const derived = { critical: 0, high: 0, medium: 0, low: 0, unclassified: 0 };
+  for (const c of changes) derived[c.risk] += 1;
+  for (const k of Object.keys(derived) as (keyof typeof derived)[]) {
+    if (derived[k] !== counts[k]) {
+      throw new Error(`The flow reported ${counts[k]} ${k} change(s) but its changes contain ${derived[k]}.`);
+    }
+  }
+  const expected: Verdict =
+    changes.length === 0 ? "no-changes"
+    : derived.critical > 0 ? "block"
+    : derived.high + derived.medium + derived.unclassified > 0 ? "needs-approval"
+    : "allow";
+  if (verdict !== expected) {
+    throw new Error(`The flow returned verdict "${verdict}" but its changes require "${expected}".`);
+  }
   return {
     verdict: verdict as Verdict,
     summary: typeof raw.summary === "string" ? raw.summary : "",

@@ -46,12 +46,16 @@ jobs:
           node-version: 20
 
       - name: Fetch the gate
-        # Pin AGENTKIT_REF to a tag or commit once you have verified a version.
+        # A full commit SHA, so the code that receives the Lamatic credentials is
+        # the code you reviewed. Move it forward deliberately, like any dependency.
         env:
-          AGENTKIT_REF: main
+          AGENTKIT_SHA: 67cbdc4aafbc1e4ab259df3201c37238fe995733
         run: |
-          git clone --depth 1 --branch "$AGENTKIT_REF" https://github.com/Lamatic/AgentKit.git /tmp/agentkit
-          cd /tmp/agentkit/kits/terraform-plan-gate/apps && npm ci
+          mkdir -p /tmp/agentkit && cd /tmp/agentkit
+          git init -q
+          git fetch -q --depth 1 https://github.com/Lamatic/AgentKit.git "$AGENTKIT_SHA"
+          git checkout -q FETCH_HEAD
+          cd kits/terraform-plan-gate/apps && npm ci
 
       - name: Review the plan
         id: gate

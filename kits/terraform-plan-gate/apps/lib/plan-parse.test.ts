@@ -91,6 +91,15 @@ test("GCP firewall and Azure NSG rules get the same open-to-internet flags as AW
   assert.ok(facts.find((f) => f.address === "azurerm_network_security_rule.any")!.flags.includes("open-to-internet:all-ports"));
 });
 
+test("a rule for TCP port 0 alone is port 0, not all ports", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  plan.resource_changes.push({ address: "aws_security_group_rule.zero", mode: "managed", type: "aws_security_group_rule", name: "zero", provider_name: "registry.terraform.io/hashicorp/aws",
+    change: { actions: ["create"], before: null, after: { type: "ingress", from_port: 0, to_port: 0, protocol: "tcp", cidr_blocks: ["0.0.0.0/0"] }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } });
+  const flags = extractFacts(plan).facts.find((f) => f.address === "aws_security_group_rule.zero")!.flags;
+  assert.ok(flags.includes("open-to-internet:0"));
+  assert.ok(!flags.includes("open-to-internet:all-ports"));
+});
+
 test("large blast radius is flagged on every change when the plan is big or destructive", () => {
   const plan = JSON.parse(load("routine-plan.json"));
   for (let i = 0; i < 6; i++) {

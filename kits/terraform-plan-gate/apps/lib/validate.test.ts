@@ -42,11 +42,27 @@ test("a mismatch between totalChanges and changes is rejected", () => {
   assert.throws(() => validateReviewResult({ ...g, totalChanges: g.changes.length + 1 }), /reported .* changes but returned/);
 });
 
+test("a verdict that contradicts its own changes is rejected", () => {
+  const g = golden();
+  assert.throws(() => validateReviewResult({ ...g, verdict: "allow" }), /returned verdict "allow" but its changes require "block"/);
+  assert.throws(() => validateReviewResult({ ...g, verdict: "needs-approval" }), /require "block"/);
+  const lowOnly = { ...g, verdict: "block", totalChanges: 1, counts: { critical: 0, high: 0, medium: 0, low: 1, unclassified: 0 }, changes: [{ address: "aws_x.y", actions: ["update"], risk: "low" }] };
+  assert.throws(() => validateReviewResult(lowOnly), /require "allow"/);
+  assert.equal(validateReviewResult({ ...lowOnly, verdict: "allow" }).verdict, "allow");
+});
+
+test("counts that disagree with the changes are rejected", () => {
+  const g = golden();
+  assert.throws(() => validateReviewResult({ ...g, counts: { ...g.counts, critical: 0, low: g.counts.low + 1 } }), /reported 0 critical change\(s\) but its changes contain 1/);
+});
+
 test("unknown risk labels become unclassified and optional fields are normalised", () => {
   const g = golden();
   const r = validateReviewResult({
     ...g,
+    verdict: "needs-approval",
     totalChanges: 1,
+    counts: { critical: 0, high: 0, medium: 0, low: 0, unclassified: 1 },
     changes: [{ address: "aws_x.y", actions: ["update"], risk: "severe", confidence: "high", policyIds: "POL-01" }],
     reviewComment: 42,
     policiesConsulted: [{ policyId: 7 }],

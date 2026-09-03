@@ -221,7 +221,7 @@ function portFlags(rule: Record<string, unknown>): string[] {
   const to = Number(rule.to_port ?? rule.to ?? NaN);
   const protocol = String(rule.protocol ?? rule.ip_protocol ?? "").toLowerCase();
   if (protocol.startsWith("icmp")) return []; // no ports to expose
-  if (protocol === "-1" || protocol === "all" || (from === 0 && (to === 0 || to === 65535))) return ["open-to-internet:all-ports"];
+  if (protocol === "-1" || protocol === "all" || (from === 0 && to === 65535)) return ["open-to-internet:all-ports"];
   const out: string[] = [];
   for (const p of ADMIN_PORTS) if (!Number.isNaN(from) && !Number.isNaN(to) && p >= from && p <= to) out.push(`open-to-internet:${p}`);
   if (out.length === 0 && !Number.isNaN(from)) out.push(`open-to-internet:${from === to ? from : `${from}-${to}`}`);

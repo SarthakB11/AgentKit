@@ -56,12 +56,22 @@ async function main() {
   })) as { status?: string; message?: string; result?: unknown };
   if (raw?.status === "error" || raw?.message) throw new Error(`Lamatic rejected the request: ${raw.message ?? "unknown error"}`);
 
-  const r = (raw.result ?? raw) as { indexed?: number; source?: string; result?: { recordsIndexed?: number; message?: string } };
+  const r = (raw.result ?? raw) as { indexed?: unknown; source?: unknown; result?: { recordsIndexed?: unknown; message?: unknown } };
+  const indexed = r.result?.recordsIndexed ?? r.indexed;
+  if (typeof indexed !== "number" || !Number.isInteger(indexed) || indexed < 1) {
+    throw new Error(`The ingest flow did not report an indexed count (got ${JSON.stringify(indexed)}). Check the Index node and the tfpolicies store in Studio.`);
+  }
+  if (file && indexed !== policies.length) {
+    throw new Error(`Sent ${policies.length} policies but the flow indexed ${indexed}. Check the Index node logs in Studio.`);
+  }
+  if (file && r.source !== "request") {
+    throw new Error(`The flow used ${JSON.stringify(r.source)} instead of the supplied policies. Redeploy tf-policy-ingest from flows/tf-policy-ingest.ts.`);
+  }
   console.log(
     JSON.stringify({
       source: r.source ?? (file ? "request" : "defaults"),
-      indexed: r.result?.recordsIndexed ?? r.indexed ?? null,
-      message: r.result?.message ?? null,
+      indexed,
+      message: typeof r.result?.message === "string" ? r.result.message : null,
     })
   );
 }
