@@ -1,8 +1,8 @@
 # Terraform Plan Gate
 
-Paste a Terraform plan. Get back a verdict a reviewer can act on: **allow**, **needs approval**, or **block**, with the reason per resource, the policy it violates, the fix, and a review comment ready to post on the pull request. A person still makes the call; the gate makes sure they see what matters.
+Paste a Terraform plan. Get back a verdict a reviewer can act on: **allow**, **needs-approval**, or **block**, with the reason per resource, the policy it violates, the fix, and a review comment ready to post on the pull request. A person still makes the call; the gate makes sure they see what matters.
 
-![The risky sample plan reviewed: verdict BLOCK, one critical and two high findings, and the policy each one breaks](assets/review.png)
+![The risky sample plan reviewed: verdict BLOCK, every change scored with its flags and the policy it breaks](assets/review.png)
 
 ## The problem
 
@@ -34,7 +34,7 @@ terraform show -json tfplan
 
 Two boundaries are deliberate:
 
-- **Secrets never leave the app.** Anything Terraform marks in `before_sensitive` / `after_sensitive`, plus any attribute whose name looks like a secret, crosses the boundary as a *name* only. Values are sent for a short safelist of security-relevant attributes (`acl`, `publicly_accessible`, `cidr_blocks`, `deletion_protection`, `skip_final_snapshot`, `force_destroy`, encryption and KMS fields, ports and protocols, tags). The test suite checks that a redacted password never appears in the payload.
+- **Secrets never leave the app.** Anything Terraform marks in `before_sensitive` / `after_sensitive`, plus any attribute whose name looks like a secret, crosses the boundary as a *name* only. Values are sent for a short safelist of security-relevant attributes (`acl`, `publicly_accessible`, `cidr_blocks`, `deletion_protection`, `skip_final_snapshot`, `force_destroy`, encryption and KMS fields, ports and protocols). Tag maps never cross; only a derived `production` flag does. The test suite checks that neither a redacted password nor a tag value appears in the payload.
 - **The model's output is checked before it counts.** The assemble node keeps one assessment per known resource address, drops any that name a resource not in the plan, accepts only the four risk levels and only policy ids that were actually retrieved, clamps confidence to 0–1, and counts anything unassessed as `unclassified`. The app validates the response shape again before rendering. The prompts wrap plan facts and policies in delimiters and state that text inside them is data, not instructions.
 - **Facts are computed, judgment is generated.** Which resources are stateful, which ports are open to the world (AWS security groups, GCP firewalls and Azure network security rules are normalised to one check), whether an IAM policy is `"*"` on `"*"`, whether a replace removes deletion protection in the same change, whether the plan as a whole is too big to apply in one go: that is code, and it is tested. What the model adds is the ranking, the policy match, the explanation and the fix.
 
@@ -85,7 +85,7 @@ Loading appends. In our tests the Index node's `overwrite` setting did not repla
 npm test
 ```
 
-Runs the parser against both sample plans (no-ops dropped, the risky plan raises the expected flags, GCP and Azure rules get the same treatment as AWS, blast radius is flagged, oversized plans are refused, no sensitive value or tag crosses the boundary), the response validator against a recorded flow response in `lib/fixtures/` plus malformed and self-contradicting variants of it, and the HTTPS-only endpoint check.
+Runs the parser against both sample plans and hand-built edge cases (no-ops and data-source reads dropped, state files refused, deposed objects kept apart from their replacements, `removed` blocks flagged, the risky plan raises the expected flags, GCP and Azure rules get the same treatment as AWS, blast radius is flagged, oversized plans are refused, no sensitive value or tag crosses the boundary), the response validator against a recorded flow response in `lib/fixtures/` plus malformed and self-contradicting variants of it, and the HTTPS-only endpoint check.
 
 ## Using it from CI
 
@@ -103,7 +103,7 @@ It prints one JSON line (`verdict`, `counts`, the non-low findings) followed by 
 
 ## Deploying
 
-Use the deploy link in `lamatic.config.ts`, or point Vercel at this repository with the root directory set to `kits/terraform-plan-gate/apps` and the four variables above set in project settings.
+Use the deploy link in `lamatic.config.ts`, or point Vercel at this repository with the root directory set to `kits/terraform-plan-gate/apps` and the four required variables above set in project settings.
 
 ## Layout
 
@@ -124,7 +124,7 @@ kits/terraform-plan-gate/
     ├── lib/plan-parse.test.ts     parser tests
     ├── lib/validate.ts            response contract check
     ├── lib/validate.test.ts       contract tests against a recorded response
-    ├── lib/endpoint.ts            HTTPS-only check for the Lamatic endpoint
+    ├── lib/endpoint.ts            HTTPS-only check and no-redirect guard for the endpoint
     ├── cli/gate.ts                the CI entry point
     ├── cli/policies.ts            load your policy set into the store
     ├── ci/terraform-plan-gate.yml GitHub Actions workflow to copy
@@ -135,7 +135,8 @@ kits/terraform-plan-gate/
 
 ## Limitations
 
-- Reads `terraform show -json` (format 1.x). Plain `terraform plan` text is not parsed.
+- Reads `terraform show -json` (format 1.x). Plain `terraform plan` text and state files are refused, not guessed at.
+- Data-source reads are counted in the summary but not reviewed. A `removed` block (Terraform 1.7+, action `forget`) is flagged as a resource left running outside state, not as a destroy. The deposed object of a create-before-destroy replacement is reviewed as its own change.
 - Deterministic flags cover the AWS, Google and Azure resource types and rule shapes listed in `plan-parse.ts`. Other providers still get scored by the model from actions and attribute names, without the flags.
 - Policies are matched by similarity to the plan summary and the top ten hits (deduplicated by policy id) are sent. A policy that does not resemble anything in the plan is not consulted, which is the intended behaviour and also the reason the model is told to cite only ids it was given.
 - One review covers up to 200 resource changes; larger plans are refused with advice to split them (`-target`). Above 12 findings the comment switches to one compact line per extra finding so every address still appears.

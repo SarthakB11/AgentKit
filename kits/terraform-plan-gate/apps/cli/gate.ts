@@ -11,7 +11,7 @@
  * pipeline can parse it; the review comment goes to stdout after it when
  * --comment is given, so it can be posted on the pull request.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
@@ -32,7 +32,13 @@ async function main() {
   }
 
   loadDotEnvLocal();
-  const facts = extractFacts(parsePlan(readFileSync(resolve(file), "utf8")));
+  const path = resolve(file);
+  if (!existsSync(path)) {
+    console.error(`Plan file not found: ${path}`);
+    process.exitCode = 3;
+    return;
+  }
+  const facts = extractFacts(parsePlan(readFileSync(path, "utf8")));
   if (facts.totalChanges === 0) {
     console.log(JSON.stringify({ verdict: "no-changes", totalChanges: 0 }));
     process.exitCode = EXIT["no-changes"];

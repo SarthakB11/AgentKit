@@ -9,11 +9,13 @@
  * before_sensitive, after_sensitive, replace_paths}}.
  */
 
-export type Action = "no-op" | "create" | "read" | "update" | "delete";
+export type Action = "no-op" | "create" | "read" | "update" | "delete" | "forget";
 
 export interface ResourceChange {
   address: string;
   module_address?: string;
+  /** Set on the old object of a create-before-destroy replacement; it shares the address with the new one. */
+  deposed?: string;
   mode: "managed" | "data";
   type: string;
   name: string;
@@ -33,6 +35,8 @@ export interface ResourceChange {
 export interface TerraformPlan {
   format_version: string;
   terraform_version?: string;
+  planned_values?: unknown;
+  values?: unknown;
   resource_changes?: ResourceChange[];
 }
 
@@ -42,8 +46,8 @@ export interface ChangeFact {
   type: string;
   provider: string;
   actions: Action[];
-  /** "replace", "destroy", "create", "update", or "read" — derived from actions. */
-  kind: "create" | "update" | "destroy" | "replace" | "read";
+  /** Derived from actions. "forget" is a `removed` block: the resource leaves state but keeps running. */
+  kind: "create" | "update" | "destroy" | "replace" | "read" | "forget";
   actionReason: string | null;
   /** Attribute names whose value differs between before and after. Never values. */
   changedAttributes: string[];
@@ -59,7 +63,7 @@ export interface PlanFacts {
   terraformVersion: string | null;
   totalChanges: number;
   facts: ChangeFact[];
-  counts: { create: number; update: number; destroy: number; replace: number; read: number };
+  counts: { create: number; update: number; destroy: number; replace: number; read: number; forget: number };
   summary: string;
 }
 
@@ -144,6 +148,7 @@ const FLAG_PHRASES: Record<string, string> = {
   "iam-wildcard": "an IAM policy granting wildcard actions and resources",
   "iam-admin-access": "AdministratorAccess being attached",
   "large-blast-radius": "a plan touching more than 25 resources or destroying more than 5 (large blast radius)",
+  forgotten: "a resource removed from state but left running (drift, orphaned resource)",
   production: "a production resource",
 };
 
@@ -168,10 +173,16 @@ export function parsePlan(text: string): TerraformPlan {
   if (plan.resource_changes !== undefined && !Array.isArray(plan.resource_changes)) {
     throw new Error("`resource_changes` is present but is not an array.");
   }
+  // A state file also has format_version, but carries `values` and never
+  // `planned_values`. Treating it as an empty plan would pass it as safe.
+  if (plan.resource_changes === undefined && plan.planned_values === undefined && plan.values !== undefined) {
+    throw new Error("This is a state file, not a plan: it has `values` but no `planned_values` or `resource_changes`. Run `terraform show -json tfplan` on a saved plan.");
+  }
   return plan;
 }
 
 function kindOf(actions: Action[]): ChangeFact["kind"] {
+  if (actions.includes("forget")) return "forget";
   if (actions.includes("delete") && actions.includes("create")) return "replace";
   if (actions.includes("delete")) return "destroy";
   if (actions.includes("create")) return "create";
@@ -288,6 +299,7 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
 
   if (kind === "destroy") flags.add("destroy");
   if (kind === "replace") flags.add("replace");
+  if (kind === "forget") flags.add("forgotten");
   if (STATEFUL_TYPES.some((re) => re.test(rc.type))) flags.add("stateful");
   if (LONG_LIVED_COMPUTE.some((re) => re.test(rc.type)) && kind === "replace") flags.add("compute-replacement");
 
@@ -301,8 +313,10 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
   )
     flags.add("public-access-block-disabled");
 
+  // On a destroy `after` is null, so the safeguard's last known state is in `before`.
+  const protectionAtRisk = kind === "destroy" ? before.deletion_protection : after.deletion_protection;
   if (before.deletion_protection === true && after.deletion_protection === false) flags.add("deletion-protection-removed");
-  else if (after.deletion_protection === false && (kind === "destroy" || kind === "replace")) flags.add("deletion-protection-off");
+  else if (protectionAtRisk === false && (kind === "destroy" || kind === "replace")) flags.add("deletion-protection-off");
   if (after.skip_final_snapshot === true || before.skip_final_snapshot === true) flags.add("skip-final-snapshot");
   if (after.force_destroy === true || (kind === "destroy" && before.force_destroy === true)) flags.add("force-destroy");
 
@@ -320,8 +334,9 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
   if (typeof after.policy_arn === "string" && /AdministratorAccess/.test(after.policy_arn)) flags.add("iam-admin-access");
 
   const tags = (after.tags_all ?? after.tags ?? before.tags_all ?? before.tags) as Record<string, string> | undefined;
-  const env = tags && typeof tags === "object" ? String(tags.environment ?? tags.Environment ?? tags.env ?? "") : "";
-  if (/^prod/i.test(env) || /(^|[._-])prod(uction)?([._-]|$)/i.test(rc.address)) flags.add("production");
+  const env = tags && typeof tags === "object" ? String(tags.environment ?? tags.Environment ?? tags.env ?? tags.Env ?? tags.stage ?? tags.Stage ?? "") : "";
+  // "prod" as its own path segment or index key; "product_images" is not production.
+  if (/^prod/i.test(env) || /(^|[._\-\["])prod(uction)?([._\-\[\]"]|$)/i.test(rc.address)) flags.add("production");
 
   return [...flags].sort();
 }
@@ -334,12 +349,18 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
 export const MAX_CHANGES = 200;
 
 export function extractFacts(plan: TerraformPlan): PlanFacts {
-  const counts = { create: 0, update: 0, destroy: 0, replace: 0, read: 0 };
+  const counts = { create: 0, update: 0, destroy: 0, replace: 0, read: 0, forget: 0 };
   const facts: ChangeFact[] = [];
 
   for (const rc of plan.resource_changes ?? []) {
     const actions = rc.change?.actions ?? [];
     if (actions.length === 0 || (actions.length === 1 && actions[0] === "no-op")) continue;
+    // Data sources read during apply are not infrastructure changes; count them
+    // so the summary is honest, but do not send them for review.
+    if (rc.mode === "data") {
+      counts.read += 1;
+      continue;
+    }
     const kind = kindOf(actions);
     counts[kind] += 1;
 
@@ -364,7 +385,10 @@ export function extractFacts(plan: TerraformPlan): PlanFacts {
     }
 
     facts.push({
-      address: rc.address,
+      // The deposed half of a create-before-destroy replacement shares its
+      // address with the new object; keep the two apart so every fact and
+      // every assessment stays addressable.
+      address: rc.deposed ? `${rc.address} (deposed ${rc.deposed})` : rc.address,
       type: rc.type,
       provider: rc.provider_name,
       actions,
@@ -393,7 +417,7 @@ export function extractFacts(plan: TerraformPlan): PlanFacts {
   const flagged = facts.filter((f) => f.flags.some((x) => x !== "production")).length;
   const stateful = facts.filter((f) => f.flags.includes("stateful") && (f.kind === "destroy" || f.kind === "replace")).length;
   const summary =
-    `${facts.length} resource change(s): ${counts.create} create, ${counts.update} update, ${counts.destroy} destroy, ${counts.replace} replace, ${counts.read} read. ` +
+    `${facts.length} resource change(s): ${counts.create} create, ${counts.update} update, ${counts.destroy} destroy, ${counts.replace} replace, ${counts.forget} removed from state, ${counts.read} data read. ` +
     `${stateful} stateful resource(s) destroyed or replaced. ${flagged} change(s) carry risk flags: ` +
     (facts
       .flatMap((f) => f.flags.filter((x) => x !== "production").map((x) => `${f.address} ${x}`))

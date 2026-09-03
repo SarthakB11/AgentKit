@@ -14,7 +14,7 @@ test("rejects text that is not a plan", () => {
 test("routine plan: no-ops dropped, safeguards recognised, nothing destroyed", () => {
   const facts = extractFacts(parsePlan(load("routine-plan.json")));
   assert.equal(facts.totalChanges, 4); // the SNS topic is a no-op
-  assert.deepEqual(facts.counts, { create: 2, update: 2, destroy: 0, replace: 0, read: 0 });
+  assert.deepEqual(facts.counts, { create: 2, update: 2, destroy: 0, replace: 0, read: 0, forget: 0 });
   const pab = facts.facts.find((f) => f.type === "aws_s3_bucket_public_access_block")!;
   assert.ok(!pab.flags.includes("public-access-block-disabled"));
   const bucket = facts.facts.find((f) => f.type === "aws_s3_bucket")!;
@@ -128,4 +128,57 @@ test("a plan beyond the review bound is refused with advice, not truncated", () 
       change: { actions: ["create"], before: null, after: { name: `q${i}` }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } });
   }
   assert.throws(() => extractFacts(plan), /reviews up to 200 in one run/);
+});
+
+test("a state file is refused instead of passing as an empty plan", () => {
+  assert.throws(() => parsePlan(JSON.stringify({ format_version: "1.0", terraform_version: "1.9.5", values: { root_module: {} } })), /state file, not a plan/);
+  // A plan with nothing to do has planned_values and may omit resource_changes.
+  const empty = parsePlan(JSON.stringify({ format_version: "1.2", planned_values: {} }));
+  assert.equal(extractFacts(empty).totalChanges, 0);
+});
+
+test("the deposed half of a create-before-destroy replacement keeps its own address", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  const base = { mode: "managed", type: "aws_instance", name: "web", provider_name: "registry.terraform.io/hashicorp/aws" };
+  plan.resource_changes.push(
+    { address: "aws_instance.web", ...base, change: { actions: ["create"], before: null, after: { instance_type: "t3.small" }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } },
+    { address: "aws_instance.web", deposed: "8f2c1a9b", ...base, change: { actions: ["delete"], before: { instance_type: "t3.micro" }, after: null, after_unknown: {}, before_sensitive: {}, after_sensitive: false } }
+  );
+  const addresses = extractFacts(plan).facts.map((f) => f.address);
+  assert.ok(addresses.includes("aws_instance.web"));
+  assert.ok(addresses.includes("aws_instance.web (deposed 8f2c1a9b)"));
+  assert.equal(new Set(addresses).size, addresses.length, "addresses are unique");
+});
+
+test("data-source reads are counted but not reviewed; removed blocks are flagged", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  plan.resource_changes.push(
+    { address: "data.aws_caller_identity.current", mode: "data", type: "aws_caller_identity", name: "current", provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["read"], before: null, after: {}, after_unknown: { account_id: true }, before_sensitive: false, after_sensitive: {} } },
+    { address: "aws_s3_bucket.legacy", mode: "managed", type: "aws_s3_bucket", name: "legacy", provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["forget"], before: { bucket: "legacy" }, after: null, after_unknown: {}, before_sensitive: {}, after_sensitive: false } }
+  );
+  const facts = extractFacts(plan);
+  assert.equal(facts.counts.read, 1);
+  assert.ok(!facts.facts.some((f) => f.address.startsWith("data.")));
+  const forgotten = facts.facts.find((f) => f.address === "aws_s3_bucket.legacy")!;
+  assert.equal(forgotten.kind, "forget");
+  assert.ok(forgotten.flags.includes("forgotten"));
+  assert.ok(!forgotten.flags.includes("destroy"), "leaving state is not a destroy");
+});
+
+test("deletion protection is read from before on a destroy, and prod is matched as a segment", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  plan.resource_changes.push(
+    { address: "aws_db_instance.reports", mode: "managed", type: "aws_db_instance", name: "reports", provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["delete"], before: { deletion_protection: false, skip_final_snapshot: false }, after: null, after_unknown: {}, before_sensitive: {}, after_sensitive: false } },
+    { address: "aws_s3_bucket.product_images", mode: "managed", type: "aws_s3_bucket", name: "product_images", provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["update"], before: { bucket: "x", tags: {} }, after: { bucket: "x", tags: { team: "web" } }, after_unknown: {}, before_sensitive: {}, after_sensitive: {} } },
+    { address: "module.prod[\"eu\"].aws_sqs_queue.jobs", mode: "managed", type: "aws_sqs_queue", name: "jobs", provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["update"], before: { name: "jobs" }, after: { name: "jobs", tags: { team: "web" } }, after_unknown: {}, before_sensitive: {}, after_sensitive: {} } }
+  );
+  const facts = extractFacts(plan).facts;
+  assert.ok(facts.find((f) => f.address === "aws_db_instance.reports")!.flags.includes("deletion-protection-off"));
+  assert.ok(!facts.find((f) => f.address === "aws_s3_bucket.product_images")!.flags.includes("production"));
+  assert.ok(facts.find((f) => f.address.startsWith("module.prod["))!.flags.includes("production"));
 });

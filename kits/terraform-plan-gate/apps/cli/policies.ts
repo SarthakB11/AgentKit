@@ -11,7 +11,7 @@
  * change the set, delete the tfpolicies store in Studio first, then run this
  * once. The Index node recreates the store.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
@@ -26,19 +26,25 @@ interface Policy {
 function readPolicies(file: string): Policy[] {
   const doc = JSON.parse(readFileSync(resolve(file), "utf8")) as unknown;
   if (!Array.isArray(doc) || doc.length === 0) throw new Error(`${file} must be a non-empty JSON array of { policy_id, title, text }.`);
+  const seen = new Set<string>();
   return doc.map((p, i) => {
     if (!p || typeof p !== "object") throw new Error(`policies[${i}] is not an object`);
     const { policy_id, title, text } = p as Record<string, unknown>;
     if (typeof policy_id !== "string" || typeof title !== "string" || typeof text !== "string") {
       throw new Error(`policies[${i}] needs string policy_id, title and text`);
     }
-    return { policy_id, title, text };
+    const id = policy_id.trim();
+    if (!id || !title.trim() || !text.trim()) throw new Error(`policies[${i}] has an empty policy_id, title or text`);
+    if (seen.has(id)) throw new Error(`policies[${i}] repeats policy_id ${id}; ids must be unique`);
+    seen.add(id);
+    return { policy_id: id, title: title.trim(), text: text.trim() };
   });
 }
 
 async function main() {
   const file = process.argv.slice(2).find((a) => !a.startsWith("--"));
   loadDotEnvLocal();
+  if (file && !existsSync(resolve(file))) throw new Error(`Policy file not found: ${resolve(file)}`);
 
   const step = kit.steps.find((s) => s.id === "tf-policy-ingest");
   if (!step || !("envKey" in step) || !step.envKey) throw new Error("lamatic.config.ts has no tf-policy-ingest step with an envKey.");

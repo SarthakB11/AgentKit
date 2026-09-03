@@ -24,7 +24,7 @@ plan JSON
 
 The split is deliberate. Whether a change destroys a stateful resource, opens an admin port to the world (AWS security groups, GCP firewalls and Azure network security rules are normalised to one rule shape first), removes deletion protection in the same plan that deletes, or belongs to a plan too large to apply in one go is a question with a right answer, so it is computed and tested. Ranking, policy matching and explanation are the model's job. The verdict is arithmetic on the model's answers, never a model output, so the same counts always give the same gate result.
 
-Each change fact crosses the boundary JSON-encoded, because Studio's trigger schema offers `[]` or `[string]` for arrays and object items are rejected at ingestion. The assemble node parses either shape.
+Each change fact crosses the boundary JSON-encoded, because Studio's trigger schema offers `[]` or `[string]` for arrays and object items are rejected at ingestion. The assemble node parses either shape. The parser skips no-ops and data-source reads, refuses state files, keeps the deposed object of a create-before-destroy replacement apart from its successor (address suffixed with `(deposed <id>)`), and treats a `removed` block (`forget`) as a resource leaving state, not a destroy.
 
 ## Flows
 
@@ -39,7 +39,7 @@ Run once, or whenever the policy set changes.
 | `run` | string | Free-text label for the run |
 | `policies` | `[string]` | Optional. Your policy set, each entry a JSON-encoded `{ policy_id, title, text }`. Empty or absent means the ten defaults |
 
-**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id`. The store is created on first use. Loading appends: delete the store in Studio before loading a changed set, or the old records stay and crowd the search results.
+**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `policy_id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id`. The store is created on first use. Loading appends: delete the store in Studio before loading a changed set, or the old records stay and crowd the search results.
 
 **Response** — `{ indexed, source: "request" | "defaults", result: { recordsIndexed, duplicateRecordsDeleted, message } }`.
 
@@ -138,7 +138,8 @@ A review makes exactly one outbound request, from the server action or from `app
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Missing LAMATIC_… — copy apps/.env.example…` | No `.env.local` or a blank value | Fill in the variables listed in `apps/.env.example` and restart the dev server |
-| `This does not look like a Terraform plan` | Pasted `terraform plan` text, or a state file | Use `terraform show -json tfplan` |
+| `This does not look like a Terraform plan` | Pasted `terraform plan` text, or JSON without `resource_changes` | Use `terraform show -json tfplan` on a saved plan |
+| `This is a state file, not a plan` | `terraform show -json` was run without a plan file, so it printed state | Run `terraform plan -out tfplan` first, then `terraform show -json tfplan` |
 | `LAMATIC_API_URL must use https://` | The endpoint was copied without the scheme, or as `http://` | Copy the API URL from the flow's Setup panel; it starts with `https://` |
 | `This plan has N resource changes; the gate reviews up to 200` | The plan is larger than one review | Split with `terraform plan -target` and review each part |
 | Every change is `unclassified` | Generate JSON returned nothing, or addresses do not match | Check the node's model credential; confirm the schema in Studio still requires `address` |

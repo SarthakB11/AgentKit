@@ -48,6 +48,8 @@ jobs:
       - name: Fetch the gate
         # A full commit SHA, so the code that receives the Lamatic credentials is
         # the code you reviewed. Move it forward deliberately, like any dependency.
+        # Set it to a commit that contains kits/terraform-plan-gate (the merge
+        # commit of this kit or later).
         env:
           AGENTKIT_SHA: 67cbdc4aafbc1e4ab259df3201c37238fe995733
         run: |
