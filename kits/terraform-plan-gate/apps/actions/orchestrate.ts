@@ -1,0 +1,68 @@
+"use server";
+
+import { parsePlan, extractFacts } from "../lib/plan-parse";
+import { getLamaticClient, flowIdFor } from "../lib/lamatic-client";
+import type { ReviewResult, ReviewResponse } from "../lib/types";
+
+/**
+ * The SDK reports failures as a value — `{ status: "error", message }` — rather
+ * than throwing, so check for that before unwrapping. On success the payload is
+ * either the API Response body directly or wrapped in `result`.
+ */
+function unwrap(raw: unknown): ReviewResult {
+  const r = raw as { status?: string; message?: string; statusCode?: number; result?: unknown } | null;
+  if (r?.status === "error" || r?.message) {
+    const code = r?.statusCode ? ` (HTTP ${r.statusCode})` : "";
+    throw new Error(`Lamatic rejected the request${code}: ${r?.message ?? "unknown error"}`);
+  }
+  const payload = (r?.result ?? r) as Partial<ReviewResult> | null;
+  if (!payload || typeof payload !== "object" || !payload.verdict || !Array.isArray(payload.changes)) {
+    throw new Error("The flow returned an unexpected shape — no `verdict` and `changes` in the response.");
+  }
+  return payload as ReviewResult;
+}
+
+export async function reviewPlan(planText: string): Promise<ReviewResponse> {
+  try {
+    const plan = parsePlan(planText);
+    const facts = extractFacts(plan);
+
+    // Nothing to judge: answer locally, no model call.
+    if (facts.totalChanges === 0) {
+      return {
+        ok: true,
+        data: {
+          verdict: "no-changes",
+          summary: "The plan contains no resource changes (all no-op).",
+          totalChanges: 0,
+          counts: { critical: 0, high: 0, medium: 0, low: 0, unclassified: 0 },
+          changes: [],
+          reviewComment: null,
+          policiesConsulted: [],
+        },
+      };
+    }
+
+    const client = getLamaticClient();
+    const raw = await client.executeFlow(flowIdFor("step1"), {
+      // The trigger declares `changes` as [string]: Studio's schema accepts only
+      // [] or [string] for arrays, so each fact crosses as JSON text and the
+      // flow's assemble node parses it back.
+      changes: facts.facts.map((f) => JSON.stringify(f)),
+      totalChanges: facts.totalChanges,
+      summary: facts.summary,
+    });
+
+    return { ok: true, data: unwrap(raw) };
+  } catch (e: unknown) {
+    // Errors go back as values; a thrown error inside a server action renders
+    // as a blank screen in the client component.
+    let message = e instanceof Error ? e.message : "Review failed.";
+    if (message.includes("fetch failed")) {
+      message = "Could not reach Lamatic. Check LAMATIC_API_URL and your network connection.";
+    } else if (message.includes("HTTP 403")) {
+      message += " — check LAMATIC_API_KEY is an API key from Studio > Settings > API Keys, not the Project ID.";
+    }
+    return { ok: false, error: message };
+  }
+}
