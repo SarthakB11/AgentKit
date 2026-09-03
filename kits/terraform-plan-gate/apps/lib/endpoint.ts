@@ -15,3 +15,29 @@ export function assertHttpsEndpoint(url: string, name = "LAMATIC_API_URL"): stri
   }
   return url;
 }
+
+type FetchFn = typeof globalThis.fetch;
+const pinned = new Set<string>();
+let nativeFetch: FetchFn | null = null;
+
+/**
+ * lamatic@0.3.2 calls the global fetch with the runtime's default redirect
+ * policy, so an HTTPS endpoint that answers with a redirect could forward the
+ * API key to wherever it points. This pins `redirect: "error"` for requests
+ * to the Lamatic endpoint only; every other URL keeps the default behaviour.
+ * Safe to call more than once.
+ */
+export function pinRedirectPolicy(endpoint: string): void {
+  const target = new URL(endpoint).href;
+  if (pinned.has(target)) return;
+  pinned.add(target);
+  if (!nativeFetch) {
+    nativeFetch = globalThis.fetch;
+    const base = nativeFetch;
+    globalThis.fetch = ((input: Parameters<FetchFn>[0], init?: Parameters<FetchFn>[1]) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const guarded = pinned.has(url) ? { ...init, redirect: "error" as const } : init;
+      return base(input, guarded);
+    }) as FetchFn;
+  }
+}

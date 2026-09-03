@@ -1,6 +1,6 @@
 import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
-import { assertHttpsEndpoint } from "./endpoint";
+import { assertHttpsEndpoint, pinRedirectPolicy } from "./endpoint";
 
 // Credentials are read lazily rather than at module load, so `next build`
 // succeeds on a machine that has no .env.local yet. Anything missing surfaces
@@ -14,8 +14,10 @@ function required(name: string): string {
 }
 
 export function getLamaticClient(): Lamatic {
+  const endpoint = assertHttpsEndpoint(required("LAMATIC_API_URL"));
+  pinRedirectPolicy(endpoint);
   return new Lamatic({
-    endpoint: assertHttpsEndpoint(required("LAMATIC_API_URL")),
+    endpoint,
     projectId: required("LAMATIC_PROJECT_ID"),
     apiKey: required("LAMATIC_API_KEY"),
   });

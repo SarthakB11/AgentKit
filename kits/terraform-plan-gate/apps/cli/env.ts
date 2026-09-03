@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertHttpsEndpoint } from "../lib/endpoint";
+import { assertHttpsEndpoint, pinRedirectPolicy } from "../lib/endpoint";
 
 /** Load apps/.env.local into process.env without overriding values already set. */
 export function loadDotEnvLocal() {
@@ -28,7 +28,9 @@ export function env(name: string): string {
 /** The Lamatic endpoint, checked to be HTTPS before any credential is attached. */
 export function endpoint(): string {
   try {
-    return assertHttpsEndpoint(env("LAMATIC_API_URL"));
+    const url = assertHttpsEndpoint(env("LAMATIC_API_URL"));
+    pinRedirectPolicy(url);
+    return url;
   } catch (e) {
     throw new ConfigError(e instanceof Error ? e.message : String(e));
   }
