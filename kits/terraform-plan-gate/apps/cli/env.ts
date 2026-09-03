@@ -8,7 +8,8 @@ export function loadDotEnvLocal() {
   if (!existsSync(p)) return;
   for (const line of readFileSync(p, "utf8").split("\n")) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=(.*)$/);
-    if (!m || process.env[m[1]]) continue;
+    // An explicitly set variable wins even when it is empty; only unset ones are filled.
+    if (!m || process.env[m[1]] !== undefined) continue;
     const value = m[2].trim();
     const quoted = value.match(/^"(.*)"$|^'(.*)'$/);
     process.env[m[1]] = quoted ? (quoted[1] ?? quoted[2]) : value;
