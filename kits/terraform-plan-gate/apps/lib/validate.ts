@@ -91,6 +91,12 @@ export function validateReviewResult(raw: unknown): ReviewResult {
   }
   const dropped = nonNegativeCount(raw.droppedAssessments, "droppedAssessments");
   const invalid = nonNegativeCount(raw.invalidFacts, "invalidFacts");
+  // The flow materialises every invalid fact as an unclassified change, so a
+  // response that reports invalid facts without the matching changes would
+  // hide unknown risk behind a safe-looking verdict.
+  if (invalid > derived.unclassified) {
+    throw new Error(`The flow reported ${invalid} invalid fact(s) but only ${derived.unclassified} unclassified change(s).`);
+  }
   return {
     verdict: verdict as Verdict,
     summary: typeof raw.summary === "string" ? raw.summary : "",

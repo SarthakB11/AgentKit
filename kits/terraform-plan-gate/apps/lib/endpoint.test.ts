@@ -4,6 +4,7 @@ import { assertHttpsEndpoint, pinRedirectPolicy } from "./endpoint";
 
 test("only https endpoints are accepted", () => {
   assert.equal(assertHttpsEndpoint("https://example.lamatic.dev/graphql"), "https://example.lamatic.dev/graphql");
+  assert.equal(assertHttpsEndpoint("https://Example.lamatic.dev"), "https://example.lamatic.dev/", "canonical form: what the SDK will send");
   assert.throws(() => assertHttpsEndpoint("http://example.lamatic.dev/graphql"), /must use https/);
   assert.throws(() => assertHttpsEndpoint("ftp://example.lamatic.dev/graphql"), /must use https/);
   assert.throws(() => assertHttpsEndpoint("example.lamatic.dev/graphql"), /not a valid URL/);

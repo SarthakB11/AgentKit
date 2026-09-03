@@ -18,6 +18,8 @@ export default function Page() {
   // Only the most recent sample request may touch the UI: two quick clicks
   // must not let the slower response overwrite the later choice.
   const sampleRequest = useRef(0);
+  // Same rule for reviews: a verdict is shown only for the plan that is still in the box.
+  const reviewRequest = useRef(0);
 
   async function loadSample(name: "routine-plan" | "risky-plan") {
     const id = ++sampleRequest.current;
@@ -35,11 +37,13 @@ export default function Page() {
   }
 
   async function run() {
+    const id = ++reviewRequest.current;
     setBusy(true);
     setError(null);
     setResult(null);
     setDecision(null);
     const res = await reviewPlan(planText);
+    if (id !== reviewRequest.current) return;
     setBusy(false);
     if (res.ok) setResult(res.data);
     else setError(res.error);

@@ -84,4 +84,14 @@ for (const p of (Array.isArray(policies) ? policies : [])) {
 }
 const policiesConsulted = [...seenPolicies.values()];
 
-output = { verdict, summary, totalChanges: changes.length, counts, changes, reviewComment: typeof comment === "string" && comment.trim() ? comment : null, policiesConsulted, droppedAssessments, invalidFacts };
+// The comment is written before this node runs, so it cannot know which
+// changes ended up unclassified. Append that list here, deterministically, so
+// an approval-required change is never missing from what gets posted.
+const unclassifiedAddresses = changes.filter(c => c.risk === "unclassified").map(c => c.address);
+let reviewComment = typeof comment === "string" && comment.trim() ? comment.trim() : null;
+if (unclassifiedAddresses.length > 0) {
+  const section = "### Needs assessment\n" + unclassifiedAddresses.map(a => `* \`${a}\` - unclassified - no assessment; review by hand`).join("\n");
+  reviewComment = reviewComment ? reviewComment + "\n\n" + section : section;
+}
+
+output = { verdict, summary, totalChanges: changes.length, counts, changes, reviewComment, policiesConsulted, droppedAssessments, invalidFacts };

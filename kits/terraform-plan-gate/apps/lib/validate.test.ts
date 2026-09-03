@@ -85,3 +85,12 @@ test("droppedAssessments must be a non-negative integer when present", () => {
   assert.throws(() => validateReviewResult({ ...g, invalidFacts: -2 }), /malformed invalidFacts/);
   assert.equal(validateReviewResult({ ...g, invalidFacts: undefined }).invalidFacts, 0);
 });
+
+test("invalid facts must appear as unclassified changes, never only as a number", () => {
+  const g = golden();
+  assert.throws(() => validateReviewResult({ ...g, invalidFacts: 1 }), /1 invalid fact\(s\) but only 0 unclassified/);
+  const empty = { ...g, verdict: "no-changes", totalChanges: 0, counts: { critical: 0, high: 0, medium: 0, low: 0, unclassified: 0 }, changes: [], invalidFacts: 1 };
+  assert.throws(() => validateReviewResult(empty), /invalid fact/);
+  const materialised = { ...g, verdict: "needs-approval", totalChanges: 1, counts: { critical: 0, high: 0, medium: 0, low: 0, unclassified: 1 }, changes: [{ address: "invalid-fact-1", actions: [], risk: "unclassified" }], invalidFacts: 1 };
+  assert.equal(validateReviewResult(materialised).verdict, "needs-approval");
+});

@@ -7,14 +7,20 @@ import type { PolicyHit } from "../lib/types";
 import { Button } from "@/components/ui/button";
 
 export function ReviewComment({ markdown, policies }: { markdown: string | null; policies: PolicyHit[] }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   async function copy() {
     if (!markdown) return;
-    await navigator.clipboard.writeText(markdown);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(markdown);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+    setTimeout(() => setCopyState("idle"), 2000);
   }
+  const copied = copyState === "copied";
 
   return (
     <section className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--panel)" }}>
@@ -22,8 +28,11 @@ export function ReviewComment({ markdown, policies }: { markdown: string | null;
         <h2 className="text-sm font-semibold">Review comment</h2>
         <Button variant="outline" size="xs" className="ml-auto" onClick={copy} disabled={!markdown}>
           {copied ? <ClipboardCheck aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          {copied ? "Copied" : "Copy for the PR"}
+          {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed, select the text instead" : "Copy for the PR"}
         </Button>
+        <span role="status" aria-live="polite" className="sr-only">
+          {copyState === "copied" ? "Review comment copied" : copyState === "failed" ? "Copy failed" : ""}
+        </span>
       </div>
       <div className="prose-review text-sm">
         {markdown ? <ReactMarkdown>{markdown}</ReactMarkdown> : <p style={{ color: "var(--muted)" }}>No comment was generated.</p>}

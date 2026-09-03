@@ -35,8 +35,8 @@ const schema = z.object({
       }
       const isObject = !!doc && typeof doc === "object" && !Array.isArray(doc);
       const d = isObject ? (doc as Record<string, unknown>) : {};
-      if (!isObject || (!Array.isArray(d.resource_changes) && typeof d.format_version !== "string")) {
-        ctx.addIssue({ code: "custom", message: "This does not look like a Terraform plan: expected an object with `resource_changes`." });
+      if (!isObject || !Array.isArray(d.resource_changes)) {
+        ctx.addIssue({ code: "custom", message: "This does not look like a Terraform plan: expected an object with a `resource_changes` array." });
       }
     }),
 });
@@ -68,11 +68,11 @@ export function PlanInput({ value, onChange, onLoadSample, onReview, busy }: Pro
             terraform plan -out tfplan &amp;&amp; terraform show -json tfplan &gt; plan.json
           </span>
           <div className="ml-auto flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => onLoadSample("routine-plan")}>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => onLoadSample("routine-plan")}>
               <FileJson aria-hidden="true" />
               Load routine example
             </Button>
-            <Button variant="outline" size="sm" onClick={() => onLoadSample("risky-plan")}>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => onLoadSample("risky-plan")}>
               <ShieldAlert aria-hidden="true" />
               Load risky example
             </Button>
@@ -82,6 +82,7 @@ export function PlanInput({ value, onChange, onLoadSample, onReview, busy }: Pro
           id="plan-json"
           className="h-64 resize-y leading-5"
           spellCheck={false}
+          disabled={busy}
           placeholder='{ "format_version": "1.2", "resource_changes": [ ... ] }'
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? "plan-json-error" : undefined}

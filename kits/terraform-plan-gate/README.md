@@ -13,7 +13,7 @@ Paste a Terraform plan. Get back a verdict a reviewer can act on: **allow**, **n
 - **Every resource change scored** `low`, `medium`, `high` or `critical`, with a category (data loss, availability, security exposure, privilege, cost, drift, routine), the reasoning, and the concrete mitigation.
 - **Policy references.** Ten infrastructure policies ship with the kit (no public buckets, no admin ports open to the internet, stateful resources need a snapshot before destroy, and so on). The review flow retrieves the ones relevant to this plan from a Vector Store and cites them by id. Your own rules go in with one command: edit `assets/policies.json` and run `npm run policies -- ../assets/policies.json`.
 - **A verdict** computed from the counts, not asked of the model: any critical finding blocks; any high, medium or unassessed change needs approval; otherwise allow.
-- **A review comment** in markdown, written the way a platform engineer writes one: verdict sentence, findings in order of severity, a before-apply checklist, and the routine changes listed in one line.
+- **A review comment** in markdown, written the way a platform engineer writes one: verdict sentence, findings in order of severity, a before-apply checklist, and the routine changes listed in one line. Changes the model did not assess are appended by code as a "Needs assessment" list, never silently dropped.
 - **A decision record.** Approving a needs-approval plan or overriding a block requires a written justification; the app produces a JSON record with the verdict, the action, the reason and a timestamp to paste into the PR or a ticket.
 
 ## How it works

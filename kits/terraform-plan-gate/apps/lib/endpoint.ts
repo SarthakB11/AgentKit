@@ -13,7 +13,8 @@ export function assertHttpsEndpoint(url: string, name = "LAMATIC_API_URL"): stri
   if (parsed.protocol !== "https:") {
     throw new Error(`${name} must use https:// (got ${parsed.protocol}//). The API key is sent with every request.`);
   }
-  return url;
+  // The canonical form, so the redirect guard below matches what the SDK sends.
+  return parsed.href;
 }
 
 type FetchFn = typeof globalThis.fetch;
