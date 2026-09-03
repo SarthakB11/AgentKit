@@ -22,7 +22,7 @@ plan JSON
          └─ Code                    join facts with assessments, counts, verdict
 ```
 
-The split is deliberate. Whether a change destroys a stateful resource, opens an admin port to the world, or removes deletion protection in the same plan that deletes is a question with a right answer, so it is computed and tested. Ranking, policy matching and explanation are the model's job. The verdict is arithmetic on the model's answers, never a model output, so the same counts always give the same gate result.
+The split is deliberate. Whether a change destroys a stateful resource, opens an admin port to the world (AWS security groups, GCP firewalls and Azure network security rules are normalised to one rule shape first), removes deletion protection in the same plan that deletes, or belongs to a plan too large to apply in one go is a question with a right answer, so it is computed and tested. Ranking, policy matching and explanation are the model's job. The verdict is arithmetic on the model's answers, never a model output, so the same counts always give the same gate result.
 
 Each change fact crosses the boundary JSON-encoded, because Studio's trigger schema offers `[]` or `[string]` for arrays and object items are rejected at ingestion. The assemble node parses either shape.
 
@@ -32,11 +32,18 @@ Each change fact crosses the boundary JSON-encoded, because Studio's trigger sch
 
 Run once, or whenever the policy set changes.
 
-**Trigger** — API Request with a single `run` field (any string).
+**Trigger** — API Request:
 
-**Processing** — a Code node holds the policy set (ten defaults, each `{ policy_id, title, text }`), Vectorize embeds `id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id` with `overwrite` on duplicates.
+| Field | Type | Meaning |
+|---|---|---|
+| `run` | string | Free-text label for the run |
+| `policies` | `[string]` | Optional. Your policy set, each entry a JSON-encoded `{ policy_id, title, text }`. Empty or absent means the ten defaults |
 
-**Response** — `{ indexed, result: { recordsIndexed, duplicateRecordsDeleted, message } }`.
+**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id` with `overwrite` on duplicates, so re-running after an edit replaces the record.
+
+**Response** — `{ indexed, source: "request" | "defaults", result: { recordsIndexed, duplicateRecordsDeleted, message } }`.
+
+`apps/cli/policies.ts` (`npm run policies -- policies.json`) is the supported way to call it; `assets/policies.json` is the default set in that shape.
 
 **Dependencies** — one embedding model; a Vector Store named `tfpolicies`.
 
@@ -103,7 +110,7 @@ Beyond `constitutions/default.md`:
 | Structured-output model | Per-change assessment | Configured in Studio on the Generate JSON node |
 | Text model | Review comment | Configured in Studio on the Generate Text node |
 
-A review makes exactly one outbound request, from the server action or from `apps/cli/gate.ts`. A plan with no changes makes none; the app answers locally.
+A review makes exactly one outbound request, from the server action or from `apps/cli/gate.ts`. A plan with no changes makes none; the app answers locally. `apps/ci/terraform-plan-gate.yml` shows the CLI wired into a GitHub Actions job that posts the comment on the pull request and fails on `block`.
 
 ## Environment setup
 
@@ -113,20 +120,21 @@ A review makes exactly one outbound request, from the server action or from `app
 | `LAMATIC_PROJECT_ID` | Studio → Settings → General → Project ID |
 | `LAMATIC_API_URL` | Studio → flow → Setup → API URL |
 | `LAMATIC_TERRAFORM_PLAN_REVIEW_FLOW_ID` | `tf-plan-review` → three-dot menu → Copy Flow Id |
+| `LAMATIC_TERRAFORM_POLICY_INGEST_FLOW_ID` | `tf-policy-ingest` → Copy Flow Id (only for `npm run policies`) |
 
 ## Quickstart
 
 1. In Lamatic Studio, create a Vector Store named `tfpolicies` (Data → Context Stores) and recreate the two flows from `flows/` (they are Studio's own export; re-select your model credentials on the model nodes).
-2. Deploy `tf-policy-ingest`; run it once (Test in Studio, or one API call).
+2. Deploy `tf-policy-ingest`; run it once (Test in Studio with `{"run": "init", "policies": []}`, or `npm run policies` from `apps/`).
 3. Deploy `tf-plan-review`; copy its Flow ID.
-4. `cd kits/terraform-plan-gate/apps && cp .env.example .env.local`, fill in the four values.
+4. `cd kits/terraform-plan-gate/apps && cp .env.example .env.local`, fill in the values.
 5. `npm install && npm run dev`, open http://localhost:3000, press **Load risky example**, then **Review plan**.
 
 ## Common failure modes
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Missing LAMATIC_… — copy apps/.env.example…` | No `.env.local` or a blank value | Fill in all four variables and restart the dev server |
+| `Missing LAMATIC_… — copy apps/.env.example…` | No `.env.local` or a blank value | Fill in the variables listed in `apps/.env.example` and restart the dev server |
 | `This does not look like a Terraform plan` | Pasted `terraform plan` text, or a state file | Use `terraform show -json tfplan` |
 | Every change is `unclassified` | Generate JSON returned nothing, or addresses do not match | Check the node's model credential; confirm the schema in Studio still requires `address` |
 | `policiesConsulted` is empty | The `tfpolicies` store is empty, or the review flow points at a different store | Run `tf-policy-ingest`; check the Vector DB field on the Vector Search node |
@@ -134,4 +142,6 @@ A review makes exactly one outbound request, from the server action or from `app
 | Index reports success but the store shows 0 records | A metadata key is a reserved name (`id`) | Keep `policy_id` as the primary key; do not rename it to `id` |
 | `Could not reach Lamatic` | Wrong `LAMATIC_API_URL` or no network | Re-copy the API URL from the flow's Setup panel |
 | A node shows "Required Fields" after import, or a model call fails with a credential error | The `credentialId` values in `model-configs/` belong to the author's project | Re-select your own credential on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes, then save and deploy |
-| Verdict is `needs-approval` for a plan you consider routine | A medium finding, often "large blast radius" or a production tag on a replace | Read the finding; adjust the policy text in the ingest flow if the rule is wrong for your team |
+| Verdict is `needs-approval` for a plan you consider routine | A medium finding, often "large blast radius" or a production tag on a replace | Read the finding; change the policy in `assets/policies.json` and reload it with `npm run policies` if the rule is wrong for your team |
+| The ingest flow answers `source: "defaults"` although `policies` was sent | Every entry was dropped: `policy_id`, `title` or `text` missing or not a string, or the entries were not JSON-encoded strings | Send each policy as `JSON.stringify({ policy_id, title, text })`; `npm run policies` does this and validates the file first |
+| A policy you removed from the file is still cited | Ingest overwrites by `policy_id` and never deletes | Delete the record in Studio (Data → `tfpolicies`) or recreate the store, then reload |

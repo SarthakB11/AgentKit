@@ -1,0 +1,197 @@
+{
+  "verdict": "block",
+  "summary": "6 change(s): 1 critical, 2 high, 1 medium, 0 unclassified. Highest: critical.",
+  "totalChanges": 6,
+  "counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 1,
+    "low": 2,
+    "unclassified": 0
+  },
+  "changes": [
+    {
+      "address": "module.orders_db.aws_db_instance.primary",
+      "type": "aws_db_instance",
+      "actions": [
+        "delete",
+        "create"
+      ],
+      "actionReason": "replace_because_cannot_update",
+      "changedAttributes": [
+        "deletion_protection",
+        "engine_version",
+        "final_snapshot_identifier",
+        "skip_final_snapshot"
+      ],
+      "flags": [
+        "deletion-protection-removed",
+        "production",
+        "replace",
+        "skip-final-snapshot",
+        "stateful"
+      ],
+      "risk": "critical",
+      "category": "data-loss",
+      "policyIds": [
+        "POL-01",
+        "POL-02",
+        "POL-09"
+      ],
+      "reason": "The database instance is being replaced, deletion protection is removed, and final snapshots are skipped, violating policies POL-01 and POL-02.",
+      "mitigation": "Enable deletion protection, retain final snapshots, and obtain explicit backup confirmation and change window approval.",
+      "confidence": 0.99
+    },
+    {
+      "address": "aws_security_group_rule.bastion_ssh",
+      "type": "aws_security_group_rule",
+      "actions": [
+        "update"
+      ],
+      "actionReason": null,
+      "changedAttributes": [
+        "cidr_blocks"
+      ],
+      "flags": [
+        "open-to-internet:22"
+      ],
+      "risk": "high",
+      "category": "security-exposure",
+      "policyIds": [
+        "POL-03"
+      ],
+      "reason": "SSH port 22 is opened to the entire internet (0.0.0.0/0), violating policy POL-03.",
+      "mitigation": "Restrict cidr_blocks to known IP ranges instead of 0.0.0.0/0.",
+      "confidence": 0.95
+    },
+    {
+      "address": "aws_s3_bucket_public_access_block.exports",
+      "type": "aws_s3_bucket_public_access_block",
+      "actions": [
+        "update"
+      ],
+      "actionReason": null,
+      "changedAttributes": [
+        "block_public_acls",
+        "block_public_policy",
+        "restrict_public_buckets"
+      ],
+      "flags": [
+        "public-access-block-disabled"
+      ],
+      "risk": "high",
+      "category": "security-exposure",
+      "policyIds": [
+        "POL-03"
+      ],
+      "reason": "Public access block settings are disabled on an S3 bucket, exposing data storage to public access in violation of POL-03.",
+      "mitigation": "Enable public access blocks to prevent public data exposure.",
+      "confidence": 0.95
+    },
+    {
+      "address": "aws_iam_policy.ci_deploy",
+      "type": "aws_iam_policy",
+      "actions": [
+        "create"
+      ],
+      "actionReason": null,
+      "changedAttributes": [
+        "name",
+        "path",
+        "policy",
+        "tags"
+      ],
+      "flags": [
+        "iam-wildcard",
+        "production"
+      ],
+      "risk": "medium",
+      "category": "security-exposure",
+      "policyIds": [
+        "POL-05"
+      ],
+      "reason": "The IAM policy grants wildcard actions and resources together, violating POL-05.",
+      "mitigation": "Restrict IAM policy actions and resources to specific permissions instead of using wildcards.",
+      "confidence": 0.9
+    },
+    {
+      "address": "aws_lambda_function.export_worker",
+      "type": "aws_lambda_function",
+      "actions": [
+        "update"
+      ],
+      "actionReason": null,
+      "changedAttributes": [
+        "runtime"
+      ],
+      "flags": [
+        "production"
+      ],
+      "risk": "low",
+      "category": "routine",
+      "policyIds": [],
+      "reason": "An in-place update of runtime for a Lambda function is a routine configuration change.",
+      "mitigation": "none needed",
+      "confidence": 0.9
+    },
+    {
+      "address": "aws_cloudwatch_log_group.export_worker",
+      "type": "aws_cloudwatch_log_group",
+      "actions": [
+        "update"
+      ],
+      "actionReason": null,
+      "changedAttributes": [
+        "retention_in_days"
+      ],
+      "flags": [
+        "production"
+      ],
+      "risk": "low",
+      "category": "routine",
+      "policyIds": [],
+      "reason": "Updating log retention days is a standard routine maintenance operation.",
+      "mitigation": "none needed",
+      "confidence": 0.9
+    }
+  ],
+  "reviewComment": "We recommend not applying this plan until critical data loss risks and security exposures are resolved.\n\n### Findings\n* `module.orders_db.aws_db_instance.primary` - critical - The database instance is being replaced, deletion protection is removed, and final snapshots are skipped [POL-01, POL-02, POL-09] - Enable deletion protection, retain final snapshots, and obtain explicit backup confirmation and change window approval.\n* `aws_security_group_rule.bastion_ssh` - high - SSH port 22 is opened to the entire internet (0.0.0.0/0) [POL-03] - Restrict cidr_blocks to known IP ranges instead of 0.0.0.0/0.\n* `aws_s3_bucket_public_access_block.exports` - high - Public access block settings are disabled on an S3 bucket, exposing data storage to public access [POL-03] - Enable public access blocks to prevent public data exposure.\n* `aws_iam_policy.ci_deploy` - medium - The IAM policy grants wildcard actions and resources together [POL-05] - Restrict IAM policy actions and resources to specific permissions instead of using wildcards.\n\n### Before apply\n* Enable deletion protection on `module.orders_db.aws_db_instance.primary`.\n* Retain final snapshots for `module.orders_db.aws_db_instance.primary`.\n* Obtain explicit backup confirmation and change window approval.\n* Restrict `cidr_blocks` to known IP ranges on `aws_security_group_rule.bastion_ssh`.\n* Enable public access blocks on `aws_s3_bucket_public_access_block.exports`.\n* Restrict IAM policy actions and resources on `aws_iam_policy.ci_deploy`.\n\n### Routine\n`aws_lambda_function.export_worker`, `aws_cloudwatch_log_group.export_worker`",
+  "policiesConsulted": [
+    {
+      "policyId": "POL-01",
+      "title": "Destroying stateful resources needs explicit approval",
+      "certainty": 0.8891551494598389
+    },
+    {
+      "policyId": "POL-02",
+      "title": "Never remove deletion protection or final snapshots in the same change that deletes",
+      "certainty": 0.8823851048946381
+    },
+    {
+      "policyId": "POL-10",
+      "title": "Large blast radius requires staged apply",
+      "certainty": 0.8623801469802856
+    },
+    {
+      "policyId": "POL-06",
+      "title": "Replacements of long-lived compute are a rollout, not an update",
+      "certainty": 0.8518010079860687
+    },
+    {
+      "policyId": "POL-09",
+      "title": "Production changes need a change window",
+      "certainty": 0.8381046652793884
+    },
+    {
+      "policyId": "POL-03",
+      "title": "No public data stores",
+      "certainty": 0.8330283761024475
+    },
+    {
+      "policyId": "POL-05",
+      "title": "IAM policies must not grant wildcard actions or resources",
+      "certainty": 0.8315849900245667
+    }
+  ],
+  "droppedAssessments": 0
+}

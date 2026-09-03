@@ -16,7 +16,8 @@ export default {
       type: "mandatory" as const,
       title: "Load the policy set",
       description:
-        "Run once. Embeds the organisation's infrastructure policies (ten defaults ship in the Code node; edit them to match your rules) into the `tfpolicies` Vector Store.",
+        "Run once. Embeds the organisation's infrastructure policies into the `tfpolicies` Vector Store. Ten defaults ship in the flow; send your own set as `policies: [string]` (or `npm run policies -- policies.json`) to replace them.",
+      envKey: "LAMATIC_TERRAFORM_POLICY_INGEST_FLOW_ID",
     },
     {
       id: "tf-plan-review",

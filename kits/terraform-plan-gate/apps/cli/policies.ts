@@ -1,0 +1,72 @@
+#!/usr/bin/env tsx
+/**
+ * Load a policy set into the `tfpolicies` Vector Store through the
+ * tf-policy-ingest flow. Run once with no file to load the ten defaults
+ * shipped in the flow, or point it at your own JSON:
+ *
+ *   npm run policies                          # defaults built into the flow
+ *   npm run policies -- ../assets/policies.json   # your own set, same shape
+ *
+ * A policy is { policy_id, title, text }. Records with the same policy_id are
+ * overwritten, so re-running after an edit is safe. Ids missing from the file
+ * are not removed from the store; delete those in Studio.
+ */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { Lamatic } from "lamatic";
+import kit from "../../lamatic.config";
+import { env, loadDotEnvLocal } from "./env";
+
+interface Policy {
+  policy_id: string;
+  title: string;
+  text: string;
+}
+
+function readPolicies(file: string): Policy[] {
+  const doc = JSON.parse(readFileSync(resolve(file), "utf8")) as unknown;
+  if (!Array.isArray(doc) || doc.length === 0) throw new Error(`${file} must be a non-empty JSON array of { policy_id, title, text }.`);
+  return doc.map((p, i) => {
+    if (!p || typeof p !== "object") throw new Error(`policies[${i}] is not an object`);
+    const { policy_id, title, text } = p as Record<string, unknown>;
+    if (typeof policy_id !== "string" || typeof title !== "string" || typeof text !== "string") {
+      throw new Error(`policies[${i}] needs string policy_id, title and text`);
+    }
+    return { policy_id, title, text };
+  });
+}
+
+async function main() {
+  const file = process.argv.slice(2).find((a) => !a.startsWith("--"));
+  loadDotEnvLocal();
+
+  const step = kit.steps.find((s) => s.id === "tf-policy-ingest");
+  if (!step || !("envKey" in step) || !step.envKey) throw new Error("lamatic.config.ts has no tf-policy-ingest step with an envKey.");
+
+  const policies = file ? readPolicies(file) : [];
+  const client = new Lamatic({
+    endpoint: env("LAMATIC_API_URL"),
+    projectId: env("LAMATIC_PROJECT_ID"),
+    apiKey: env("LAMATIC_API_KEY"),
+  });
+  const raw = (await client.executeFlow(env(step.envKey), {
+    run: file ? `policies from ${file}` : "defaults",
+    // Same [string] trigger convention as the review flow.
+    policies: policies.map((p) => JSON.stringify(p)),
+  })) as { status?: string; message?: string; result?: unknown };
+  if (raw?.status === "error" || raw?.message) throw new Error(`Lamatic rejected the request: ${raw.message ?? "unknown error"}`);
+
+  const r = (raw.result ?? raw) as { indexed?: number; source?: string; result?: { recordsIndexed?: number; message?: string } };
+  console.log(
+    JSON.stringify({
+      source: r.source ?? (file ? "request" : "defaults"),
+      indexed: r.result?.recordsIndexed ?? r.indexed ?? null,
+      message: r.result?.message ?? null,
+    })
+  );
+}
+
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(3);
+});

@@ -69,6 +69,42 @@ test("force_destroy is kept on deletes, where after is null", () => {
   assert.ok(f.flags.includes("stateful"));
 });
 
+test("GCP firewall and Azure NSG rules get the same open-to-internet flags as AWS", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  plan.resource_changes.push(
+    { address: "google_compute_firewall.ssh", mode: "managed", type: "google_compute_firewall", name: "ssh", provider_name: "registry.terraform.io/hashicorp/google",
+      change: { actions: ["create"], before: null, after: { direction: "INGRESS", source_ranges: ["0.0.0.0/0"], allow: [{ protocol: "tcp", ports: ["22", "8080-8090"] }] }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } },
+    { address: "azurerm_network_security_rule.rdp", mode: "managed", type: "azurerm_network_security_rule", name: "rdp", provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: { actions: ["create"], before: null, after: { direction: "Inbound", access: "Allow", protocol: "Tcp", source_address_prefix: "*", destination_port_range: "3389" }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } },
+    { address: "azurerm_network_security_rule.deny_all", mode: "managed", type: "azurerm_network_security_rule", name: "deny_all", provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: { actions: ["create"], before: null, after: { direction: "Inbound", access: "Deny", protocol: "*", source_address_prefix: "*", destination_port_range: "*" }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } },
+    { address: "azurerm_network_security_rule.ping", mode: "managed", type: "azurerm_network_security_rule", name: "ping", provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: { actions: ["create"], before: null, after: { direction: "Inbound", access: "Allow", protocol: "Icmp", source_address_prefix: "Internet", destination_port_range: "*" }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } },
+    { address: "azurerm_network_security_rule.any", mode: "managed", type: "azurerm_network_security_rule", name: "any", provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: { actions: ["create"], before: null, after: { direction: "Inbound", access: "Allow", protocol: "*", source_address_prefix: "*", destination_port_range: "*" }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } }
+  );
+  const facts = extractFacts(plan).facts;
+  assert.ok(facts.find((f) => f.address === "google_compute_firewall.ssh")!.flags.includes("open-to-internet:22"));
+  assert.ok(facts.find((f) => f.address === "azurerm_network_security_rule.rdp")!.flags.includes("open-to-internet:3389"));
+  assert.ok(!facts.find((f) => f.address === "azurerm_network_security_rule.deny_all")!.flags.some((x) => x.startsWith("open-to-internet")), "a Deny rule is not an exposure");
+  assert.ok(!facts.find((f) => f.address === "azurerm_network_security_rule.ping")!.flags.some((x) => x.startsWith("open-to-internet")), "ICMP has no ports to expose");
+  assert.ok(facts.find((f) => f.address === "azurerm_network_security_rule.any")!.flags.includes("open-to-internet:all-ports"));
+});
+
+test("large blast radius is flagged on every change when the plan is big or destructive", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  for (let i = 0; i < 6; i++) {
+    plan.resource_changes.push({ address: `aws_sqs_queue.q${i}`, mode: "managed", type: "aws_sqs_queue", name: `q${i}`, provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["delete"], before: { name: `q${i}` }, after: null, after_unknown: {}, before_sensitive: {}, after_sensitive: false } });
+  }
+  const facts = extractFacts(plan);
+  assert.equal(facts.counts.destroy, 6);
+  assert.ok(facts.facts.every((f) => f.flags.includes("large-blast-radius")));
+  assert.match(facts.summary, /large blast radius/);
+  const small = extractFacts(parsePlan(load("routine-plan.json")));
+  assert.ok(small.facts.every((f) => !f.flags.includes("large-blast-radius")));
+});
+
 test("summary names the flagged resources", () => {
   const facts = extractFacts(parsePlan(load("risky-plan.json")));
   assert.match(facts.summary, /6 resource change\(s\)/);

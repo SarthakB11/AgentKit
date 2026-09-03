@@ -11,8 +11,9 @@
     "build": "next build",
     "dev": "next dev",
     "start": "next start",
-    "test": "tsx --test lib/plan-parse.test.ts",
-    "gate": "tsx cli/gate.ts"
+    "test": "tsx --test lib/plan-parse.test.ts lib/validate.test.ts",
+    "gate": "tsx cli/gate.ts",
+    "policies": "tsx cli/policies.ts"
   },
   "dependencies": {
     "lamatic": "0.3.2",

@@ -1,6 +1,4 @@
-// Default policy set. Send your own as `policies: [string]` (JSON-encoded
-// {policy_id, title, text} objects) on the trigger to replace it.
-const defaults = [
+[
   {
     "policy_id": "POL-01",
     "title": "Destroying stateful resources needs explicit approval",
@@ -51,16 +49,4 @@ const defaults = [
     "title": "Large blast radius requires staged apply",
     "text": "A single plan that touches more than 25 resources, or deletes more than 5, should be split or applied with -target in stages. This is a medium finding by itself and raises every other finding one level."
   }
-];
-
-const supplied = {{triggerNode_1.output.policies}};
-const parsed = (Array.isArray(supplied) ? supplied : [])
-  .map(p => { if (typeof p === "string") { try { return JSON.parse(p); } catch (e) { return null; } } return p; })
-  .filter(p => p && typeof p.policy_id === "string" && typeof p.title === "string" && typeof p.text === "string");
-const policies = parsed.length > 0 ? parsed : defaults;
-
-output = {
-  source: parsed.length > 0 ? "request" : "defaults",
-  texts: policies.map(p => p.policy_id + " " + p.title + ". " + p.text),
-  metadata: policies.map(p => ({ policy_id: p.policy_id, title: p.title, text: p.text }))
-};
+]

@@ -143,6 +143,7 @@ const FLAG_PHRASES: Record<string, string> = {
   "customer-kms-key-removed": "a customer-managed KMS key being removed",
   "iam-wildcard": "an IAM policy granting wildcard actions and resources",
   "iam-admin-access": "AdministratorAccess being attached",
+  "large-blast-radius": "a plan touching more than 25 resources or destroying more than 5 (large blast radius)",
   production: "a production resource",
 };
 
@@ -218,12 +219,52 @@ function portFlags(rule: Record<string, unknown>): string[] {
   if (!cidrsOpenToWorld(rule)) return [];
   const from = Number(rule.from_port ?? rule.from ?? NaN);
   const to = Number(rule.to_port ?? rule.to ?? NaN);
-  const protocol = String(rule.protocol ?? rule.ip_protocol ?? "");
-  if (protocol === "-1" || (from === 0 && (to === 0 || to === 65535))) return ["open-to-internet:all-ports"];
+  const protocol = String(rule.protocol ?? rule.ip_protocol ?? "").toLowerCase();
+  if (protocol.startsWith("icmp")) return []; // no ports to expose
+  if (protocol === "-1" || protocol === "all" || (from === 0 && (to === 0 || to === 65535))) return ["open-to-internet:all-ports"];
   const out: string[] = [];
   for (const p of ADMIN_PORTS) if (!Number.isNaN(from) && !Number.isNaN(to) && p >= from && p <= to) out.push(`open-to-internet:${p}`);
   if (out.length === 0 && !Number.isNaN(from)) out.push(`open-to-internet:${from === to ? from : `${from}-${to}`}`);
   return out;
+}
+
+/**
+ * Normalise the provider-specific shapes of an inbound rule into
+ * { from_port, to_port, protocol, cidr_blocks } so one check covers AWS
+ * security groups, GCP firewalls and Azure network security rules.
+ */
+function ingressRules(type: string, after: Record<string, unknown>): Record<string, unknown>[] {
+  const rules: Record<string, unknown>[] = [];
+  // AWS: aws_security_group.ingress[] blocks, aws_security_group_rule, aws_vpc_security_group_ingress_rule
+  if (Array.isArray(after.ingress)) rules.push(...(after.ingress as Record<string, unknown>[]));
+  if (/^aws_(security_group_rule|vpc_security_group_ingress_rule)$/.test(type) && (after.type === "ingress" || after.type === undefined)) rules.push(after);
+  // GCP: google_compute_firewall with direction INGRESS, allow[] { protocol, ports[] }, source_ranges[]
+  if (type === "google_compute_firewall" && String(after.direction ?? "INGRESS").toUpperCase() === "INGRESS") {
+    const allows = Array.isArray(after.allow) ? (after.allow as Record<string, unknown>[]) : [];
+    for (const a of allows) {
+      const ports = Array.isArray(a.ports) && a.ports.length > 0 ? (a.ports as string[]) : ["0-65535"];
+      for (const p of ports) {
+        const [from, to] = String(p).split("-");
+        rules.push({ from_port: Number(from), to_port: Number(to ?? from), protocol: String(a.protocol ?? "tcp"), cidr_blocks: after.source_ranges });
+      }
+    }
+  }
+  // Azure: azurerm_network_security_rule / security_rule[] with direction Inbound, access Allow
+  const azRules: Record<string, unknown>[] = [];
+  if (type === "azurerm_network_security_rule") azRules.push(after);
+  if (Array.isArray(after.security_rule)) azRules.push(...(after.security_rule as Record<string, unknown>[]));
+  for (const r of azRules) {
+    if (String(r.direction ?? "").toLowerCase() !== "inbound" || String(r.access ?? "Allow").toLowerCase() !== "allow") continue;
+    const prefixes = [r.source_address_prefix, ...(Array.isArray(r.source_address_prefixes) ? r.source_address_prefixes : [])]
+      .filter((x) => typeof x === "string")
+      .map((x) => (x === "*" || x === "Internet" ? "0.0.0.0/0" : x));
+    const ranges = [r.destination_port_range, ...(Array.isArray(r.destination_port_ranges) ? r.destination_port_ranges : [])].filter((x) => typeof x === "string") as string[];
+    for (const range of ranges.length ? ranges : ["*"]) {
+      const [from, to] = range === "*" ? ["0", "65535"] : range.split("-");
+      rules.push({ from_port: Number(from), to_port: Number(to ?? from), protocol: String(r.protocol ?? "Tcp") === "*" ? "-1" : String(r.protocol), cidr_blocks: prefixes });
+    }
+  }
+  return rules;
 }
 
 function iamWildcard(policyText: unknown): boolean {
@@ -271,14 +312,7 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
   if ((before.kms_key_id || before.kms_key_arn) && !(after.kms_key_id || after.kms_key_arn) && kind !== "destroy")
     flags.add("customer-kms-key-removed");
 
-  const rules: Record<string, unknown>[] = [];
-  for (const key of ["ingress"]) {
-    const v = after[key];
-    if (Array.isArray(v)) rules.push(...(v as Record<string, unknown>[]));
-  }
-  if (/security_group_rule$|vpc_security_group_ingress_rule$|firewall/.test(rc.type) && (after.type === "ingress" || after.type === undefined))
-    rules.push(after);
-  for (const r of rules) for (const f of portFlags(r)) flags.add(f);
+  for (const r of ingressRules(rc.type, after)) for (const f of portFlags(r)) flags.add(f);
 
   for (const key of ["policy", "assume_role_policy", "policy_document", "inline_policy"]) {
     if (iamWildcard(after[key])) flags.add("iam-wildcard");
@@ -334,6 +368,13 @@ export function extractFacts(plan: TerraformPlan): PlanFacts {
       attributeValues,
       flags: flagsFor(rc, kind, attributeValues),
     });
+  }
+
+  // POL-10 is about the whole plan, not one resource: over 25 changes or over
+  // 5 destroys/replaces marks every change so the reviewer sees it in context.
+  const destructive = counts.destroy + counts.replace;
+  if (facts.length > 25 || destructive > 5) {
+    for (const f of facts) if (!f.flags.includes("large-blast-radius")) f.flags = [...f.flags, "large-blast-radius"].sort();
   }
 
   const flagged = facts.filter((f) => f.flags.some((x) => x !== "production")).length;

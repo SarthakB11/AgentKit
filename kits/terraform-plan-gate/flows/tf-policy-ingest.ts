@@ -64,7 +64,7 @@ export const nodes = [
         "nodeName": "API Request",
         "responeType": "realtime",
         "responseType": "realtime",
-        "advance_schema": "{\n  \"run\": \"string\"\n}"
+        "advance_schema": "{\n  \"run\": \"string\",\n  \"policies\": \"[string]\"\n}"
       }
     }
   },
@@ -134,7 +134,7 @@ export const nodes = [
       "values": {
         "id": "responseNode_triggerNode",
         "nodeName": "API Response",
-        "outputMapping": "{\n  \"indexed\": \"{{codeNode_1.output.texts.length}}\",\n  \"result\": \"{{IndexNode_1.output}}\"\n}"
+        "outputMapping": "{\n  \"indexed\": \"{{codeNode_1.output.texts.length}}\",\n  \"source\": \"{{codeNode_1.output.source}}\",\n  \"result\": \"{{IndexNode_1.output}}\"\n}"
       }
     }
   }
