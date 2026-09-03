@@ -53,7 +53,7 @@ test("a verdict that contradicts its own changes is rejected", () => {
 
 test("counts that disagree with the changes are rejected", () => {
   const g = golden();
-  assert.throws(() => validateReviewResult({ ...g, counts: { ...g.counts, critical: 0, low: g.counts.low + 1 } }), /reported 0 critical change\(s\) but its changes contain 1/);
+  assert.throws(() => validateReviewResult({ ...g, counts: { ...g.counts, critical: 0, low: g.counts.low + 1 } }), /reported 0 critical change\(s\) but its changes contain \d+/);
 });
 
 test("unknown risk labels become unclassified and optional fields are normalised", () => {
@@ -66,7 +66,6 @@ test("unknown risk labels become unclassified and optional fields are normalised
     changes: [{ address: "aws_x.y", actions: ["update"], risk: "severe", confidence: "high", policyIds: "POL-01" }],
     reviewComment: 42,
     policiesConsulted: [{ policyId: 7 }],
-    droppedAssessments: "1",
   });
   assert.equal(r.changes[0].risk, "unclassified");
   assert.equal(r.changes[0].confidence, null);
@@ -75,4 +74,14 @@ test("unknown risk labels become unclassified and optional fields are normalised
   assert.equal(r.reviewComment, null);
   assert.deepEqual(r.policiesConsulted, [{ policyId: null, title: null, certainty: null }]);
   assert.equal(r.droppedAssessments, 0);
+});
+
+test("droppedAssessments must be a non-negative integer when present", () => {
+  const g = golden();
+  assert.throws(() => validateReviewResult({ ...g, droppedAssessments: -1 }), /malformed droppedAssessments/);
+  assert.throws(() => validateReviewResult({ ...g, droppedAssessments: 1.5 }), /malformed droppedAssessments/);
+  assert.throws(() => validateReviewResult({ ...g, droppedAssessments: "1" }), /malformed droppedAssessments/);
+  assert.equal(validateReviewResult({ ...g, droppedAssessments: 2 }).droppedAssessments, 2);
+  assert.throws(() => validateReviewResult({ ...g, invalidFacts: -2 }), /malformed invalidFacts/);
+  assert.equal(validateReviewResult({ ...g, invalidFacts: undefined }).invalidFacts, 0);
 });

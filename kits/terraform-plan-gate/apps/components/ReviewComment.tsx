@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { ClipboardCheck, Copy } from "lucide-react";
 import type { PolicyHit } from "../lib/types";
+import { Button } from "@/components/ui/button";
 
 export function ReviewComment({ markdown, policies }: { markdown: string | null; policies: PolicyHit[] }) {
   const [copied, setCopied] = useState(false);
@@ -18,15 +20,10 @@ export function ReviewComment({ markdown, policies }: { markdown: string | null;
     <section className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--panel)" }}>
       <div className="mb-2 flex items-center">
         <h2 className="text-sm font-semibold">Review comment</h2>
-        <button
-          type="button"
-          onClick={copy}
-          disabled={!markdown}
-          className="ml-auto rounded border px-2 py-1 text-xs"
-          style={{ borderColor: "var(--border)" }}
-        >
+        <Button variant="outline" size="xs" className="ml-auto" onClick={copy} disabled={!markdown}>
+          {copied ? <ClipboardCheck aria-hidden="true" /> : <Copy aria-hidden="true" />}
           {copied ? "Copied" : "Copy for the PR"}
-        </button>
+        </Button>
       </div>
       <div className="prose-review text-sm">
         {markdown ? <ReactMarkdown>{markdown}</ReactMarkdown> : <p style={{ color: "var(--muted)" }}>No comment was generated.</p>}

@@ -326,6 +326,13 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
   return [...flags].sort();
 }
 
+/**
+ * Upper bound on changes sent to one review. The prompts are written for a
+ * plan a human can still read; beyond this, POL-10 already says the plan
+ * should be split, so the gate says so directly instead of reviewing it.
+ */
+export const MAX_CHANGES = 200;
+
 export function extractFacts(plan: TerraformPlan): PlanFacts {
   const counts = { create: 0, update: 0, destroy: 0, replace: 0, read: 0 };
   const facts: ChangeFact[] = [];
@@ -368,6 +375,12 @@ export function extractFacts(plan: TerraformPlan): PlanFacts {
       attributeValues,
       flags: flagsFor(rc, kind, attributeValues),
     });
+  }
+
+  if (facts.length > MAX_CHANGES) {
+    throw new Error(
+      `This plan has ${facts.length} resource changes; the gate reviews up to ${MAX_CHANGES} in one run. Split it with -target and review each part.`
+    );
   }
 
   // POL-10 is about the whole plan, not one resource: over 25 changes or over

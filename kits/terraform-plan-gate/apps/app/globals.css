@@ -16,6 +16,24 @@
   --hover: #1f2430;
 }
 
+/* Expose the palette to Tailwind utilities (bg-panel, border-border, ...) so
+   components never repeat a colour value. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-border: var(--border);
+  --color-foreground: var(--text);
+  --color-muted: var(--muted);
+  --color-allow: var(--allow);
+  --color-approve: var(--approve);
+  --color-block: var(--block);
+  --color-risk-high: var(--risk-high);
+  --color-surface-deep: var(--surface-deep);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-hover: var(--hover);
+}
+
 html,
 body {
   background: var(--bg);
@@ -50,25 +68,4 @@ code {
   background: var(--surface-deep);
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-radius: 6px;
-  padding: 0.45rem 0.9rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-}
-.btn-secondary {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.8rem;
-}
-.btn-secondary:hover {
-  background: var(--hover);
 }

@@ -35,6 +35,8 @@ export interface ReviewResult {
   policiesConsulted: PolicyHit[];
   /** Model assessments the flow discarded because they named no known resource. */
   droppedAssessments: number;
+  /** Trigger entries that were not a JSON fact with an address; each counts as unclassified. */
+  invalidFacts: number;
 }
 
 export type ReviewResponse = { ok: true; data: ReviewResult } | { ok: false; error: string };

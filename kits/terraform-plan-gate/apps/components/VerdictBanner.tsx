@@ -34,6 +34,9 @@ export function VerdictBanner({ result, decision }: { result: ReviewResult; deci
         <span>medium {c.medium}</span>
         <span>low {c.low}</span>
         <span>unclassified {c.unclassified}</span>
+        {result.invalidFacts > 0 && (
+          <span>{result.invalidFacts} change entr{result.invalidFacts === 1 ? "y" : "ies"} could not be read and count as unclassified</span>
+        )}
         {result.droppedAssessments > 0 && (
           <span>{result.droppedAssessments} model assessment(s) discarded for not matching a plan resource</span>
         )}

@@ -1,11 +1,11 @@
 {
   "verdict": "block",
-  "summary": "6 change(s): 1 critical, 2 high, 1 medium, 0 unclassified. Highest: critical.",
+  "summary": "6 change(s): 3 critical, 1 high, 0 medium, 0 unclassified. Highest: critical.",
   "totalChanges": 6,
   "counts": {
-    "critical": 1,
-    "high": 2,
-    "medium": 1,
+    "critical": 3,
+    "high": 1,
+    "medium": 0,
     "low": 2,
     "unclassified": 0
   },
@@ -38,9 +38,9 @@
         "POL-02",
         "POL-09"
       ],
-      "reason": "The database instance is being replaced, deletion protection is removed, and final snapshots are skipped, violating policies POL-01 and POL-02.",
-      "mitigation": "Enable deletion protection, retain final snapshots, and obtain explicit backup confirmation and change window approval.",
-      "confidence": 0.99
+      "reason": "Replacing a production database instance while removing deletion protection and skipping the final snapshot causes critical data loss risk.",
+      "mitigation": "Enable deletion protection and take a final snapshot before replacing, or get explicit approval per POL-01 and POL-02.",
+      "confidence": 1
     },
     {
       "address": "aws_security_group_rule.bastion_ssh",
@@ -55,14 +55,14 @@
       "flags": [
         "open-to-internet:22"
       ],
-      "risk": "high",
+      "risk": "critical",
       "category": "security-exposure",
       "policyIds": [
-        "POL-03"
+        "POL-04"
       ],
-      "reason": "SSH port 22 is opened to the entire internet (0.0.0.0/0), violating policy POL-03.",
+      "reason": "Port 22 is open to the internet (0.0.0.0/0).",
       "mitigation": "Restrict cidr_blocks to known IP ranges instead of 0.0.0.0/0.",
-      "confidence": 0.95
+      "confidence": 1
     },
     {
       "address": "aws_s3_bucket_public_access_block.exports",
@@ -79,14 +79,14 @@
       "flags": [
         "public-access-block-disabled"
       ],
-      "risk": "high",
+      "risk": "critical",
       "category": "security-exposure",
       "policyIds": [
         "POL-03"
       ],
-      "reason": "Public access block settings are disabled on an S3 bucket, exposing data storage to public access in violation of POL-03.",
-      "mitigation": "Enable public access blocks to prevent public data exposure.",
-      "confidence": 0.95
+      "reason": "Public access block settings are disabled on an S3 bucket.",
+      "mitigation": "Keep block_public_acls, block_public_policy, and restrict_public_buckets enabled.",
+      "confidence": 1
     },
     {
       "address": "aws_iam_policy.ci_deploy",
@@ -105,13 +105,13 @@
         "iam-wildcard",
         "production"
       ],
-      "risk": "medium",
-      "category": "security-exposure",
+      "risk": "high",
+      "category": "privilege",
       "policyIds": [
         "POL-05"
       ],
-      "reason": "The IAM policy grants wildcard actions and resources together, violating POL-05.",
-      "mitigation": "Restrict IAM policy actions and resources to specific permissions instead of using wildcards.",
+      "reason": "IAM policy grants wildcard actions and resources.",
+      "mitigation": "Scope down IAM policy actions and resources to avoid wildcards.",
       "confidence": 0.9
     },
     {
@@ -130,9 +130,9 @@
       "risk": "low",
       "category": "routine",
       "policyIds": [],
-      "reason": "An in-place update of runtime for a Lambda function is a routine configuration change.",
+      "reason": "Routine runtime update for a Lambda function.",
       "mitigation": "none needed",
-      "confidence": 0.9
+      "confidence": 1
     },
     {
       "address": "aws_cloudwatch_log_group.export_worker",
@@ -150,12 +150,12 @@
       "risk": "low",
       "category": "routine",
       "policyIds": [],
-      "reason": "Updating log retention days is a standard routine maintenance operation.",
+      "reason": "Routine update of CloudWatch log retention.",
       "mitigation": "none needed",
-      "confidence": 0.9
+      "confidence": 1
     }
   ],
-  "reviewComment": "We recommend not applying this plan until critical data loss risks and security exposures are resolved.\n\n### Findings\n* `module.orders_db.aws_db_instance.primary` - critical - The database instance is being replaced, deletion protection is removed, and final snapshots are skipped [POL-01, POL-02, POL-09] - Enable deletion protection, retain final snapshots, and obtain explicit backup confirmation and change window approval.\n* `aws_security_group_rule.bastion_ssh` - high - SSH port 22 is opened to the entire internet (0.0.0.0/0) [POL-03] - Restrict cidr_blocks to known IP ranges instead of 0.0.0.0/0.\n* `aws_s3_bucket_public_access_block.exports` - high - Public access block settings are disabled on an S3 bucket, exposing data storage to public access [POL-03] - Enable public access blocks to prevent public data exposure.\n* `aws_iam_policy.ci_deploy` - medium - The IAM policy grants wildcard actions and resources together [POL-05] - Restrict IAM policy actions and resources to specific permissions instead of using wildcards.\n\n### Before apply\n* Enable deletion protection on `module.orders_db.aws_db_instance.primary`.\n* Retain final snapshots for `module.orders_db.aws_db_instance.primary`.\n* Obtain explicit backup confirmation and change window approval.\n* Restrict `cidr_blocks` to known IP ranges on `aws_security_group_rule.bastion_ssh`.\n* Enable public access blocks on `aws_s3_bucket_public_access_block.exports`.\n* Restrict IAM policy actions and resources on `aws_iam_policy.ci_deploy`.\n\n### Routine\n`aws_lambda_function.export_worker`, `aws_cloudwatch_log_group.export_worker`",
+  "reviewComment": "Do not apply this plan because it introduces critical data loss and security exposure risks.\n\n### Findings\n* `module.orders_db.aws_db_instance.primary` - critical - Replacing a production database instance while removing deletion protection and skipping the final snapshot causes critical data loss risk. [POL-01, POL-02, POL-09] - Enable deletion protection and take a final snapshot before replacing, or get explicit approval per POL-01 and POL-02.\n* `aws_security_group_rule.bastion_ssh` - critical - Port 22 is open to the internet (0.0.0.0/0). [POL-04] - Restrict cidr_blocks to known IP ranges instead of 0.0.0.0/0.\n* `aws_s3_bucket_public_access_block.exports` - critical - Public access block settings are disabled on an S3 bucket. [POL-03] - Keep block_public_acls, block_public_policy, and restrict_public_buckets enabled.\n* `aws_iam_policy.ci_deploy` - high - IAM policy grants wildcard actions and resources. [POL-05] - Scope down IAM policy actions and resources to avoid wildcards.\n\n### Before apply\n* Enable deletion protection and take a final snapshot before replacing the database instance, or obtain explicit approval per POL-01 and POL-02.\n* Restrict cidr_blocks for the bastion SSH security group rule to known IP ranges instead of 0.0.0.0/0.\n* Keep block_public_acls, block_public_policy, and restrict_public_buckets enabled on the S3 bucket.\n* Scope down IAM policy actions and resources to avoid wildcards.\n\n### Routine\n* aws_lambda_function.export_worker, aws_cloudwatch_log_group.export_worker",
   "policiesConsulted": [
     {
       "policyId": "POL-01",
@@ -191,7 +191,23 @@
       "policyId": "POL-05",
       "title": "IAM policies must not grant wildcard actions or resources",
       "certainty": 0.8315849900245667
+    },
+    {
+      "policyId": "POL-04",
+      "title": "Administrative ports are never open to the internet",
+      "certainty": 0.8278863430023193
+    },
+    {
+      "policyId": "POL-08",
+      "title": "Encryption must not be weakened",
+      "certainty": 0.8228372633457184
+    },
+    {
+      "policyId": "POL-07",
+      "title": "Secrets and credentials never appear in plan text",
+      "certainty": 0.8100323379039764
     }
   ],
-  "droppedAssessments": 0
+  "droppedAssessments": 0,
+  "invalidFacts": 0
 }

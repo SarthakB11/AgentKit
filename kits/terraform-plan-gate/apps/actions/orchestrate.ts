@@ -1,6 +1,7 @@
 "use server";
 
 import { parsePlan, extractFacts } from "../lib/plan-parse";
+import kit from "../../lamatic.config";
 import { getLamaticClient, flowIdFor } from "../lib/lamatic-client";
 import { validateReviewResult } from "../lib/validate";
 import type { ReviewResult, ReviewResponse } from "../lib/types";
@@ -20,6 +21,9 @@ function unwrap(raw: unknown): ReviewResult {
   return validateReviewResult(r?.result ?? r);
 }
 
+// The step this action runs, taken from the kit metadata so the two cannot drift.
+const REVIEW_STEP = kit.steps.find((s) => s.id === "tf-plan-review") ?? (() => { throw new Error("lamatic.config.ts declares no tf-plan-review step."); })();
+
 export async function reviewPlan(planText: string): Promise<ReviewResponse> {
   try {
     const plan = parsePlan(planText);
@@ -38,12 +42,13 @@ export async function reviewPlan(planText: string): Promise<ReviewResponse> {
           reviewComment: null,
           policiesConsulted: [],
           droppedAssessments: 0,
+          invalidFacts: 0,
         },
       };
     }
 
     const client = getLamaticClient();
-    const raw = await client.executeFlow(flowIdFor("tf-plan-review"), {
+    const raw = await client.executeFlow(flowIdFor(REVIEW_STEP.id), {
       // The trigger declares `changes` as [string]: Studio's schema accepts only
       // [] or [string] for arrays, so each fact crosses as JSON text and the
       // flow's assemble node parses it back.

@@ -7,15 +7,15 @@
  *   npm run policies                          # defaults built into the flow
  *   npm run policies -- ../assets/policies.json   # your own set, same shape
  *
- * A policy is { policy_id, title, text }. Records with the same policy_id are
- * overwritten, so re-running after an edit is safe. Ids missing from the file
- * are not removed from the store; delete those in Studio.
+ * A policy is { policy_id, title, text }. Loading appends to the store: to
+ * change the set, delete the tfpolicies store in Studio first, then run this
+ * once. The Index node recreates the store.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
-import { env, loadDotEnvLocal } from "./env";
+import { endpoint, env, loadDotEnvLocal } from "./env";
 
 interface Policy {
   policy_id: string;
@@ -45,7 +45,7 @@ async function main() {
 
   const policies = file ? readPolicies(file) : [];
   const client = new Lamatic({
-    endpoint: env("LAMATIC_API_URL"),
+    endpoint: endpoint(),
     projectId: env("LAMATIC_PROJECT_ID"),
     apiKey: env("LAMATIC_API_KEY"),
   });
@@ -78,5 +78,5 @@ async function main() {
 
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : String(e));
-  process.exit(3);
+  process.exitCode = 3;
 });

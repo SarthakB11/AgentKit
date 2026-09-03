@@ -6,7 +6,7 @@
  *   npm run gate -- plan.json            # exit 0 allow, 2 needs-approval, 1 block
  *   npm run gate -- plan.json --comment  # also print the review comment (markdown)
  *
- * Reads the same four LAMATIC_* variables as the app (from the environment or
+ * Reads the same LAMATIC_* variables as the app (from the environment or
  * apps/.env.local). Prints one JSON line with the verdict and counts so a
  * pipeline can parse it; the review comment goes to stdout after it when
  * --comment is given, so it can be posted on the pull request.
@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
-import { env, loadDotEnvLocal } from "./env";
+import { endpoint, env, loadDotEnvLocal } from "./env";
 import { parsePlan, extractFacts } from "../lib/plan-parse";
 import { validateReviewResult } from "../lib/validate";
 
@@ -27,21 +27,23 @@ async function main() {
   const wantComment = args.includes("--comment");
   if (!file) {
     console.error("Usage: npm run gate -- <plan.json> [--comment]");
-    process.exit(3);
+    process.exitCode = 3;
+    return;
   }
 
   loadDotEnvLocal();
   const facts = extractFacts(parsePlan(readFileSync(resolve(file), "utf8")));
   if (facts.totalChanges === 0) {
     console.log(JSON.stringify({ verdict: "no-changes", totalChanges: 0 }));
-    process.exit(EXIT["no-changes"]);
+    process.exitCode = EXIT["no-changes"];
+    return;
   }
 
   const step = kit.steps.find((s) => s.id === "tf-plan-review");
   if (!step || !("envKey" in step) || !step.envKey) throw new Error("lamatic.config.ts has no tf-plan-review step with an envKey.");
 
   const client = new Lamatic({
-    endpoint: env("LAMATIC_API_URL"),
+    endpoint: endpoint(),
     projectId: env("LAMATIC_PROJECT_ID"),
     apiKey: env("LAMATIC_API_KEY"),
   });
@@ -67,10 +69,12 @@ async function main() {
     console.log("");
     console.log(result.reviewComment);
   }
-  process.exit(EXIT[result.verdict]);
+  // exitCode rather than exit(): a piped stdout is still flushing when exit()
+  // would kill the process, which truncates the JSON line or the comment.
+  process.exitCode = EXIT[result.verdict];
 }
 
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : String(e));
-  process.exit(3);
+  process.exitCode = 3;
 });

@@ -5,15 +5,23 @@ const policies = {{searchNode_1.output.searchResults}};
 
 // Facts arrive JSON-encoded (Studio's trigger schema only offers [] or [string]).
 const rawFacts = Array.isArray(trigger.changes) ? trigger.changes : [];
-const facts = rawFacts.map(f => {
-  if (typeof f === "string") { try { return JSON.parse(f); } catch (e) { return { address: String(f), parseError: true }; } }
-  return f;
+// A fact that does not parse, or parses to something other than an object with
+// an address, becomes an explicit invalid fact: it is counted as unclassified
+// (so it needs approval) instead of crashing the node.
+const isFact = f => f && typeof f === "object" && !Array.isArray(f) && typeof f.address === "string" && f.address.length > 0;
+const facts = rawFacts.map((f, i) => {
+  let parsed = f;
+  if (typeof f === "string") { try { parsed = JSON.parse(f); } catch (e) { parsed = null; } }
+  return isFact(parsed) ? parsed : { address: `invalid-fact-${i + 1}`, invalidFact: true, actions: [], changedAttributes: [], flags: [] };
 });
 
 // Everything the model returned is validated against what it was given:
 // known addresses only, known risk levels only, known policy ids only,
 // confidence clamped. Anything else is dropped or downgraded to unclassified.
 const RISKS = { critical: 4, high: 3, medium: 2, low: 1 };
+// Closed list: "constructor" or "toString" must not read as a risk level.
+const RISK_LEVELS = ["critical", "high", "medium", "low"];
+const riskOf = v => (typeof v === "string" && RISK_LEVELS.includes(v)) ? v : null;
 const CATEGORIES = new Set(["data-loss", "availability", "security-exposure", "privilege", "cost", "drift", "routine"]);
 const knownPolicyIds = new Set((Array.isArray(policies) ? policies : []).map(p => p && p.policy_id).filter(Boolean));
 const knownAddresses = new Set(facts.map(f => String(f.address)));
@@ -29,7 +37,7 @@ for (const a of list) {
 
 const changes = facts.map(f => {
   const a = byAddress.get(String(f.address));
-  const risk = a && RISKS[a.risk] ? a.risk : "unclassified";
+  const risk = (a && !f.invalidFact && riskOf(a.risk)) || "unclassified";
   const policyIds = a && Array.isArray(a.policyIds) ? a.policyIds.filter(id => knownPolicyIds.has(id)) : [];
   const confidence = a && typeof a.confidence === "number" && isFinite(a.confidence) ? Math.min(1, Math.max(0, a.confidence)) : null;
   return {
@@ -56,12 +64,24 @@ else if (counts.high > 0 || counts.medium > 0 || counts.unclassified > 0) verdic
 const highest = counts.unclassified > 0 && counts.critical === 0
   ? "unknown"
   : changes.reduce((m, c) => (RISKS[c.risk] || 0) > (RISKS[m] || 0) ? c.risk : m, "low");
+const invalidFacts = facts.filter(f => f.invalidFact).length;
 const summary = verdict === "allow"
   ? `${changes.length} change(s), nothing above low risk.`
   : `${changes.length} change(s): ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.unclassified} unclassified. Highest: ${highest}.`;
 
-const policiesConsulted = (Array.isArray(policies) ? policies : []).map(p => ({
-  policyId: p.policy_id || null, title: p.title || null, certainty: typeof p.certainty === "number" ? p.certainty : null
-}));
+// One entry per policy id, highest certainty wins: the store can hold the
+// same policy more than once after repeated loads, and a duplicate hit would
+// crowd out a distinct policy in the top results.
+const seenPolicies = new Map();
+for (const p of (Array.isArray(policies) ? policies : [])) {
+  const id = p && p.policy_id ? String(p.policy_id) : null;
+  const certainty = p && typeof p.certainty === "number" ? p.certainty : null;
+  const key = id || `unnamed-${seenPolicies.size}`;
+  const prev = seenPolicies.get(key);
+  if (!prev || (certainty !== null && (prev.certainty === null || certainty > prev.certainty))) {
+    seenPolicies.set(key, { policyId: id, title: p && p.title ? String(p.title) : null, certainty });
+  }
+}
+const policiesConsulted = [...seenPolicies.values()];
 
-output = { verdict, summary, totalChanges: changes.length, counts, changes, reviewComment: typeof comment === "string" && comment.trim() ? comment : null, policiesConsulted, droppedAssessments };
+output = { verdict, summary, totalChanges: changes.length, counts, changes, reviewComment: typeof comment === "string" && comment.trim() ? comment : null, policiesConsulted, droppedAssessments, invalidFacts };

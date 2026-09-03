@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { assertHttpsEndpoint } from "../lib/endpoint";
 
 /** Load apps/.env.local into process.env without overriding values already set. */
 export function loadDotEnvLocal() {
@@ -14,12 +15,20 @@ export function loadDotEnvLocal() {
   }
 }
 
-/** Read a required variable or exit 3 (configuration error) with a readable message. */
+export class ConfigError extends Error {}
+
+/** Read a required variable or throw a ConfigError (exit 3) with a readable message. */
 export function env(name: string): string {
   const v = process.env[name];
-  if (!v) {
-    console.error(`Missing ${name}. Set it in the environment or in apps/.env.local.`);
-    process.exit(3);
-  }
+  if (!v) throw new ConfigError(`Missing ${name}. Set it in the environment or in apps/.env.local.`);
   return v;
+}
+
+/** The Lamatic endpoint, checked to be HTTPS before any credential is attached. */
+export function endpoint(): string {
+  try {
+    return assertHttpsEndpoint(env("LAMATIC_API_URL"));
+  } catch (e) {
+    throw new ConfigError(e instanceof Error ? e.message : String(e));
+  }
 }

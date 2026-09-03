@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parsePlan, extractFacts } from "./plan-parse";
+import { parsePlan, extractFacts, MAX_CHANGES } from "./plan-parse";
 
 const load = (name: string) => readFileSync(join(process.cwd(), "public", "samples", name), "utf8");
 
@@ -119,4 +119,13 @@ test("summary names the flagged resources", () => {
   assert.match(facts.summary, /6 resource change\(s\)/);
   assert.match(facts.summary, /1 stateful resource\(s\) destroyed or replaced/);
   assert.match(facts.summary, /aws_security_group_rule\.bastion_ssh open-to-internet:22/);
+});
+
+test("a plan beyond the review bound is refused with advice, not truncated", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  for (let i = 0; i < MAX_CHANGES; i++) {
+    plan.resource_changes.push({ address: `aws_sqs_queue.q${i}`, mode: "managed", type: "aws_sqs_queue", name: `q${i}`, provider_name: "registry.terraform.io/hashicorp/aws",
+      change: { actions: ["create"], before: null, after: { name: `q${i}` }, after_unknown: {}, before_sensitive: false, after_sensitive: {} } });
+  }
+  assert.throws(() => extractFacts(plan), /reviews up to 200 in one run/);
 });

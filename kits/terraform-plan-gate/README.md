@@ -40,7 +40,7 @@ Two boundaries are deliberate:
 
 ## Quickstart
 
-1. In Lamatic Studio, create a Vector Store named `tfpolicies` (Data → Context Stores) and recreate the two flows from `flows/` (they are Studio's own export). Re-select your model credentials on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes: the `credentialId` values in `model-configs/` belong to the author's project.
+1. In Lamatic Studio, recreate the two flows from `flows/` (they are Studio's own export). Re-select your model credentials on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes: the `credentialId` values in `model-configs/` belong to the author's project.
 2. Deploy `tf-policy-ingest` and run it once (Test in Studio with `{"run": "init", "policies": []}`, or `npm run policies` below). It embeds the ten default policies into the store.
 3. Deploy `tf-plan-review` and copy its Flow ID (three-dot menu → Copy Flow Id).
 
@@ -51,6 +51,8 @@ npm install
 npm run dev
 ```
 
+The app is Next.js 15 with React 18, Tailwind v4 on CSS variables, shadcn-style components, react-hook-form with zod for the two forms, and lucide icons.
+
 Open http://localhost:3000 and press **Load risky example**. It is a plan that replaces a production Postgres instance with `skip_final_snapshot = true` and `deletion_protection = false`, opens SSH to the internet, disables a bucket's public access block, and creates a `*`/`*` IAM policy, mixed in with two routine updates. **Load routine example** is a plan with nothing above low.
 
 ### Environment
@@ -59,7 +61,7 @@ Open http://localhost:3000 and press **Load risky example**. It is a plan that r
 |---|---|
 | `LAMATIC_API_KEY` | Studio → Settings → API Keys |
 | `LAMATIC_PROJECT_ID` | Studio → Settings → General → Project ID |
-| `LAMATIC_API_URL` | Studio → flow → Setup → API URL |
+| `LAMATIC_API_URL` | Studio → flow → Setup → API URL (`https://` only) |
 | `LAMATIC_TERRAFORM_PLAN_REVIEW_FLOW_ID` | `tf-plan-review` → three-dot menu → Copy Flow Id |
 | `LAMATIC_TERRAFORM_POLICY_INGEST_FLOW_ID` | `tf-policy-ingest` → Copy Flow Id. Only `npm run policies` needs it |
 
@@ -73,7 +75,9 @@ The policy set is data, not flow configuration. `assets/policies.json` holds the
 npm run policies -- ../assets/policies.json
 ```
 
-The command validates the file, calls `tf-policy-ingest` with it as `policies: [string]`, and the flow embeds what it receives, overwriting records with the same `policy_id`. Run it with no file to reload the defaults built into the flow. The next review cites the new set, because the review flow searches the store at request time. Removing a policy from the file does not remove it from the store: delete the record in Studio (Data → the `tfpolicies` store) or recreate the store, then load the file again.
+The command validates the file, calls `tf-policy-ingest` with it as `policies: [string]`, and the flow embeds what it receives. Run it with no file to load the defaults built into the flow. The next review cites the new set, because the review flow searches the store at request time.
+
+Loading appends. In our tests the Index node's `overwrite` setting did not replace earlier records with the same `policy_id`, and duplicates crowd distinct policies out of the search results. So to change the set: delete the `tfpolicies` store in Studio (Data → Context Stores → the store's delete action), then run the command once. The Index node recreates the store on the next load.
 
 ### Tests
 
@@ -81,7 +85,7 @@ The command validates the file, calls `tf-policy-ingest` with it as `policies: [
 npm test
 ```
 
-Runs the parser against both sample plans (no-ops dropped, the risky plan raises the expected flags, GCP and Azure rules get the same treatment as AWS, blast radius is flagged, no sensitive value or tag crosses the boundary) and the response validator against a recorded flow response in `lib/fixtures/` plus malformed variants of it.
+Runs the parser against both sample plans (no-ops dropped, the risky plan raises the expected flags, GCP and Azure rules get the same treatment as AWS, blast radius is flagged, oversized plans are refused, no sensitive value or tag crosses the boundary), the response validator against a recorded flow response in `lib/fixtures/` plus malformed and self-contradicting variants of it, and the HTTPS-only endpoint check.
 
 ## Using it from CI
 
@@ -120,10 +124,12 @@ kits/terraform-plan-gate/
     ├── lib/plan-parse.test.ts     parser tests
     ├── lib/validate.ts            response contract check
     ├── lib/validate.test.ts       contract tests against a recorded response
+    ├── lib/endpoint.ts            HTTPS-only check for the Lamatic endpoint
     ├── cli/gate.ts                the CI entry point
     ├── cli/policies.ts            load your policy set into the store
     ├── ci/terraform-plan-gate.yml GitHub Actions workflow to copy
     ├── components/                input, verdict banner, change table, comment, decision
+    ├── components/ui/             shadcn-style Button, Textarea, Label
     └── public/samples/            the two example plans
 ```
 
@@ -131,5 +137,6 @@ kits/terraform-plan-gate/
 
 - Reads `terraform show -json` (format 1.x). Plain `terraform plan` text is not parsed.
 - Deterministic flags cover the AWS, Google and Azure resource types and rule shapes listed in `plan-parse.ts`. Other providers still get scored by the model from actions and attribute names, without the flags.
-- Policies are matched by similarity to the plan summary and the top seven are sent. A policy that does not resemble anything in the plan is not consulted, which is the intended behaviour and also the reason the model is told to cite only ids it was given.
+- Policies are matched by similarity to the plan summary and the top ten hits (deduplicated by policy id) are sent. A policy that does not resemble anything in the plan is not consulted, which is the intended behaviour and also the reason the model is told to cite only ids it was given.
+- One review covers up to 200 resource changes; larger plans are refused with advice to split them (`-target`). Above 12 findings the comment switches to one compact line per extra finding so every address still appears.
 - The gate scores changes; it does not estimate cost or simulate the apply.

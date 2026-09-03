@@ -8,6 +8,15 @@ const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every
 const nullableString = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const nullableNumber = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
+/** Optional counters default to 0 when absent; anything present must be a non-negative integer. */
+function nonNegativeCount(v: unknown, name: string): number {
+  const n = v === undefined ? 0 : v;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 0) {
+    throw new Error(`The flow returned a malformed ${name}: ${JSON.stringify(v)}.`);
+  }
+  return n;
+}
+
 function countsOf(v: unknown): ReviewResult["counts"] | null {
   if (!isRecord(v)) return null;
   const out = { critical: 0, high: 0, medium: 0, low: 0, unclassified: 0 };
@@ -80,6 +89,8 @@ export function validateReviewResult(raw: unknown): ReviewResult {
   if (verdict !== expected) {
     throw new Error(`The flow returned verdict "${verdict}" but its changes require "${expected}".`);
   }
+  const dropped = nonNegativeCount(raw.droppedAssessments, "droppedAssessments");
+  const invalid = nonNegativeCount(raw.invalidFacts, "invalidFacts");
   return {
     verdict: verdict as Verdict,
     summary: typeof raw.summary === "string" ? raw.summary : "",
@@ -88,6 +99,7 @@ export function validateReviewResult(raw: unknown): ReviewResult {
     changes,
     reviewComment: nullableString(raw.reviewComment),
     policiesConsulted: Array.isArray(raw.policiesConsulted) ? raw.policiesConsulted.map(policyOf) : [],
-    droppedAssessments: typeof raw.droppedAssessments === "number" ? raw.droppedAssessments : 0,
+    droppedAssessments: dropped,
+    invalidFacts: invalid,
   };
 }

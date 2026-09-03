@@ -39,13 +39,13 @@ Run once, or whenever the policy set changes.
 | `run` | string | Free-text label for the run |
 | `policies` | `[string]` | Optional. Your policy set, each entry a JSON-encoded `{ policy_id, title, text }`. Empty or absent means the ten defaults |
 
-**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id` with `overwrite` on duplicates, so re-running after an edit replaces the record.
+**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id`. The store is created on first use. Loading appends: delete the store in Studio before loading a changed set, or the old records stay and crowd the search results.
 
 **Response** — `{ indexed, source: "request" | "defaults", result: { recordsIndexed, duplicateRecordsDeleted, message } }`.
 
 `apps/cli/policies.ts` (`npm run policies -- policies.json`) is the supported way to call it; `assets/policies.json` is the default set in that shape.
 
-**Dependencies** — one embedding model; a Vector Store named `tfpolicies`.
+**Dependencies** — one embedding model; the `tfpolicies` Vector Store (created by the Index node on first run).
 
 ### `tf-plan-review`
 
@@ -57,7 +57,7 @@ Run once, or whenever the policy set changes.
 | `totalChanges` | int | Length of `changes` |
 | `summary` | string | One-paragraph plan summary with the flagged addresses; also the search query |
 
-**Processing** — Vector Search over `tfpolicies` (query = `summary`, limit 7, certainty 0.5). Generate JSON returns one assessment per fact keyed by `address`. Generate Text writes the review comment from the facts, the assessments and the summary. The Code node validates the model output against what the model was given (known addresses only, one per address, the four risk levels only, policy ids only from the retrieved set, confidence clamped to 0–1), marks anything without a valid assessment `unclassified`, counts, and computes the verdict. Assessments that name no known resource are discarded and counted in `droppedAssessments`.
+**Processing** — Vector Search over `tfpolicies` (query = `summary`, limit 10, certainty 0.5; hits are deduplicated by `policy_id`, highest certainty kept). Generate JSON returns one assessment per fact keyed by `address`. Generate Text writes the review comment from the facts, the assessments and the summary. The Code node validates the model output against what the model was given (known addresses only, one per address, the four risk levels only, policy ids only from the retrieved set, confidence clamped to 0–1), marks anything without a valid assessment `unclassified`, counts, and computes the verdict. Assessments that name no known resource are discarded and counted in `droppedAssessments`. A `changes` entry that is not a JSON object with an `address` becomes an `invalid-fact-N` change counted as `unclassified` (so it needs approval) and reported in `invalidFacts`; the risk level is checked against a closed list, so a value like `constructor` cannot reach the counts.
 
 **Response** —
 
@@ -74,11 +74,14 @@ Run once, or whenever the policy set changes.
   }>,
   reviewComment: string | null,          // markdown
   policiesConsulted: Array<{ policyId, title, certainty }>,
-  droppedAssessments: number             // model assessments that named no known resource
+  droppedAssessments: number,            // model assessments that named no known resource
+  invalidFacts: number                   // trigger entries that were not a JSON fact with an address
 }
 ```
 
 Verdict rule: any `critical` → `block`; any `high`, `medium` or `unclassified` → `needs-approval`; otherwise `allow`. Unclassified counts against the verdict on purpose: a change the classifier did not assess is unknown risk, and unknown must not read as safe.
+
+**Size bound** — the app and the CLI refuse a plan with more than 200 resource changes (`MAX_CHANGES` in `plan-parse.ts`) with advice to split it with `-target`; POL-10 already asks for that above 25. The review-comment prompt writes full bullets for the 12 highest findings and one compact line per remaining finding, so every medium-or-above address still appears.
 
 **When to use it** — on every pull request that changes infrastructure, before a scheduled apply, or when auditing a plan someone else produced.
 
@@ -118,13 +121,13 @@ A review makes exactly one outbound request, from the server action or from `app
 |---|---|
 | `LAMATIC_API_KEY` | Studio → Settings → API Keys |
 | `LAMATIC_PROJECT_ID` | Studio → Settings → General → Project ID |
-| `LAMATIC_API_URL` | Studio → flow → Setup → API URL |
+| `LAMATIC_API_URL` | Studio → flow → Setup → API URL. Must be `https://`; the app and CLI refuse anything else because the key travels with every request |
 | `LAMATIC_TERRAFORM_PLAN_REVIEW_FLOW_ID` | `tf-plan-review` → three-dot menu → Copy Flow Id |
 | `LAMATIC_TERRAFORM_POLICY_INGEST_FLOW_ID` | `tf-policy-ingest` → Copy Flow Id (only for `npm run policies`) |
 
 ## Quickstart
 
-1. In Lamatic Studio, create a Vector Store named `tfpolicies` (Data → Context Stores) and recreate the two flows from `flows/` (they are Studio's own export; re-select your model credentials on the model nodes).
+1. In Lamatic Studio, recreate the two flows from `flows/` (they are Studio's own export; re-select your model credentials on the model nodes).
 2. Deploy `tf-policy-ingest`; run it once (Test in Studio with `{"run": "init", "policies": []}`, or `npm run policies` from `apps/`).
 3. Deploy `tf-plan-review`; copy its Flow ID.
 4. `cd kits/terraform-plan-gate/apps && cp .env.example .env.local`, fill in the values.
@@ -136,6 +139,8 @@ A review makes exactly one outbound request, from the server action or from `app
 |---|---|---|
 | `Missing LAMATIC_… — copy apps/.env.example…` | No `.env.local` or a blank value | Fill in the variables listed in `apps/.env.example` and restart the dev server |
 | `This does not look like a Terraform plan` | Pasted `terraform plan` text, or a state file | Use `terraform show -json tfplan` |
+| `LAMATIC_API_URL must use https://` | The endpoint was copied without the scheme, or as `http://` | Copy the API URL from the flow's Setup panel; it starts with `https://` |
+| `This plan has N resource changes; the gate reviews up to 200` | The plan is larger than one review | Split with `terraform plan -target` and review each part |
 | Every change is `unclassified` | Generate JSON returned nothing, or addresses do not match | Check the node's model credential; confirm the schema in Studio still requires `address` |
 | `policiesConsulted` is empty | The `tfpolicies` store is empty, or the review flow points at a different store | Run `tf-policy-ingest`; check the Vector DB field on the Vector Search node |
 | Search returns nothing although the store has records | `certainty` too high for the embedding model in use | Lower certainty on the Vector Search node (0.5 works with Gemini embeddings) |
@@ -144,4 +149,4 @@ A review makes exactly one outbound request, from the server action or from `app
 | A node shows "Required Fields" after import, or a model call fails with a credential error | The `credentialId` values in `model-configs/` belong to the author's project | Re-select your own credential on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes, then save and deploy |
 | Verdict is `needs-approval` for a plan you consider routine | A medium finding, often "large blast radius" or a production tag on a replace | Read the finding; change the policy in `assets/policies.json` and reload it with `npm run policies` if the rule is wrong for your team |
 | The ingest flow answers `source: "defaults"` although `policies` was sent | Every entry was dropped: `policy_id`, `title` or `text` missing or not a string, or the entries were not JSON-encoded strings | Send each policy as `JSON.stringify({ policy_id, title, text })`; `npm run policies` does this and validates the file first |
-| A policy you removed from the file is still cited | Ingest overwrites by `policy_id` and never deletes | Delete the record in Studio (Data → `tfpolicies`) or recreate the store, then reload |
+| A policy you removed from the file is still cited, or `policiesConsulted` repeats one id | The store still holds earlier loads; ingest appends | Delete the `tfpolicies` store in Studio (Data → Context Stores), run `npm run policies` once; the Index node recreates it |

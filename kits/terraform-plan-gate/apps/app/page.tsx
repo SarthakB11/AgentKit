@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { reviewPlan } from "../actions/orchestrate";
 import type { Decision, ReviewResult } from "../lib/types";
 import { PlanInput } from "../components/PlanInput";
@@ -15,17 +15,22 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [decision, setDecision] = useState<Decision | null>(null);
+  // Only the most recent sample request may touch the UI: two quick clicks
+  // must not let the slower response overwrite the later choice.
+  const sampleRequest = useRef(0);
 
   async function loadSample(name: "routine-plan" | "risky-plan") {
+    const id = ++sampleRequest.current;
     setResult(null);
     setDecision(null);
     setError(null);
     try {
       const res = await fetch(`/samples/${name}.json`);
       if (!res.ok) throw new Error(`Sample ${name}.json could not be loaded (HTTP ${res.status}).`);
-      setPlanText(await res.text());
+      const text = await res.text();
+      if (id === sampleRequest.current) setPlanText(text);
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Sample ${name}.json could not be loaded.`);
+      if (id === sampleRequest.current) setError(e instanceof Error ? e.message : `Sample ${name}.json could not be loaded.`);
     }
   }
 
