@@ -42,6 +42,7 @@ function changeOf(v: unknown, i: number): AssessedChange {
     risk,
     category: nullableString(v.category),
     policyIds: isStringArray(v.policyIds) ? v.policyIds : [],
+    policyFloor: nullableString(v.policyFloor),
     reason: nullableString(v.reason),
     mitigation: nullableString(v.mitigation),
     confidence: nullableNumber(v.confidence),
@@ -50,7 +51,8 @@ function changeOf(v: unknown, i: number): AssessedChange {
 
 function policyOf(v: unknown): PolicyHit {
   const r = isRecord(v) ? v : {};
-  return { policyId: nullableString(r.policyId), title: nullableString(r.title), certainty: nullableNumber(r.certainty) };
+  const floor = typeof r.minimumRisk === "string" && (RISKS as string[]).includes(r.minimumRisk) ? (r.minimumRisk as Risk) : null;
+  return { policyId: nullableString(r.policyId), title: nullableString(r.title), certainty: nullableNumber(r.certainty), minimumRisk: floor };
 }
 
 /**

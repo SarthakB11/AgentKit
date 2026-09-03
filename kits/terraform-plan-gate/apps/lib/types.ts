@@ -13,6 +13,8 @@ export interface AssessedChange {
   risk: Risk;
   category: string | null;
   policyIds: string[];
+  /** Policy whose minimum_risk raised this change's risk above the model's rating, if any. */
+  policyFloor: string | null;
   reason: string | null;
   mitigation: string | null;
   confidence: number | null;
@@ -22,6 +24,7 @@ export interface PolicyHit {
   policyId: string | null;
   title: string | null;
   certainty: number | null;
+  minimumRisk: Risk | null;
 }
 
 /** Exactly what the flow's API Response node returns, after validation. */

@@ -72,7 +72,8 @@ test("unknown risk labels become unclassified and optional fields are normalised
   assert.deepEqual(r.changes[0].policyIds, []);
   assert.equal(r.changes[0].type, "unknown");
   assert.equal(r.reviewComment, null);
-  assert.deepEqual(r.policiesConsulted, [{ policyId: null, title: null, certainty: null }]);
+  assert.deepEqual(r.policiesConsulted, [{ policyId: null, title: null, certainty: null, minimumRisk: null }]);
+  assert.equal(r.changes[0].policyFloor, null);
   assert.equal(r.droppedAssessments, 0);
 });
 

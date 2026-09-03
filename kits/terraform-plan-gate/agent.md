@@ -37,15 +37,15 @@ Run once, or whenever the policy set changes.
 | Field | Type | Meaning |
 |---|---|---|
 | `run` | string | Free-text label for the run |
-| `policies` | `[string]` | Optional. Your policy set, each entry a JSON-encoded `{ policy_id, title, text }`. Empty or absent means the ten defaults |
+| `policies` | `[string]` | Optional. Your policy set, each entry a JSON-encoded `{ policy_id, title, text, minimum_risk? }`. Empty or absent means the ten defaults |
 
-**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text`, and falls back to the built-in defaults when none survive. Vectorize embeds `policy_id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id`. The store is created on first use. Loading appends: delete the store in Studio before loading a changed set, or the old records stay and crowd the search results.
+**Processing** — a Code node parses `policies`, keeps entries with string `policy_id`, `title` and `text` (an invalid or missing `minimum_risk` becomes `low`), and falls back to the built-in defaults when none survive. Vectorize embeds `policy_id + title + text`, VectorDB Index writes them into `tfpolicies` keyed by `policy_id`. The store is created on first use. Loading appends: delete the store in Studio before loading a changed set, or the old records stay and crowd the search results.
 
 **Response** — `{ indexed, source: "request" | "defaults", result: { recordsIndexed, duplicateRecordsDeleted, message } }`.
 
 `apps/cli/policies.ts` (`npm run policies -- policies.json`) is the supported way to call it; `assets/policies.json` is the default set in that shape.
 
-**Dependencies** — one embedding model; the `tfpolicies` Vector Store (created by the Index node on first run).
+**Dependencies** — one embedding model; the `tfpolicies` Vector Store (create it in Studio so it stays manageable; the Index node creates an unlisted one otherwise).
 
 ### `tf-plan-review`
 
@@ -70,14 +70,17 @@ Run once, or whenever the policy set changes.
   changes: Array<{
     address, type, actions, actionReason, changedAttributes, flags,
     risk: "low" | "medium" | "high" | "critical" | "unclassified",
-    category, policyIds: string[], reason, mitigation, confidence
+    category, policyIds: string[], reason, mitigation, confidence,
+    policyFloor: string | null      // policy whose minimum_risk raised this change above the model's rating
   }>,
   reviewComment: string | null,          // markdown
-  policiesConsulted: Array<{ policyId, title, certainty }>,
+  policiesConsulted: Array<{ policyId, title, certainty, minimumRisk }>,
   droppedAssessments: number,            // model assessments that named no known resource
   invalidFacts: number                   // trigger entries that were not a JSON fact with an address
 }
 ```
+
+Before counting, each policy's `minimum_risk` (stored with the policy at ingest) is applied as a floor to every change that cites it; the highest floor wins and `policyFloor` names it. Citations therefore carry weight, and the assessor prompt says so: a policy is cited only when the change violates it as written.
 
 Verdict rule: any `critical` → `block`; any `high`, `medium` or `unclassified` → `needs-approval`; otherwise `allow`. Unclassified counts against the verdict on purpose: a change the classifier did not assess is unknown risk, and unknown must not read as safe.
 
@@ -113,7 +116,7 @@ Beyond `constitutions/default.md`:
 | Structured-output model | Per-change assessment | Configured in Studio on the Generate JSON node |
 | Text model | Review comment | Configured in Studio on the Generate Text node |
 
-A review makes exactly one outbound request, from the server action or from `apps/cli/gate.ts`. A plan with no changes makes none; the app answers locally. `apps/ci/terraform-plan-gate.yml` shows the CLI wired into a GitHub Actions job that posts the comment on the pull request and fails on `block`.
+A review makes exactly one outbound request, from the server action or from `apps/cli/review.ts` (used by the CLI and by `npm run eval`, the model regression suite in `apps/eval/`). A plan with no changes makes none; the app answers locally. `apps/ci/terraform-plan-gate.yml` shows the CLI wired into a GitHub Actions job that posts the comment on the pull request and fails on `block`.
 
 ## Environment setup
 
@@ -127,11 +130,11 @@ A review makes exactly one outbound request, from the server action or from `app
 
 ## Quickstart
 
-1. In Lamatic Studio, recreate the two flows from `flows/` (they are Studio's own export; re-select your model credentials on the model nodes).
+1. In Lamatic Studio, create a Vector Store named `tfpolicies` (Data → Context Stores; a store the Index node creates implicitly is not listed there and cannot be deleted later), then recreate the two flows from `flows/` (they are Studio's own export; re-select your model credentials on the model nodes).
 2. Deploy `tf-policy-ingest`; run it once (Test in Studio with `{"run": "init", "policies": []}`, or `npm run policies` from `apps/`).
 3. Deploy `tf-plan-review`; copy its Flow ID.
 4. `cd kits/terraform-plan-gate/apps && cp .env.example .env.local`, fill in the values.
-5. `npm install && npm run dev`, open http://localhost:3000, press **Load risky example**, then **Review plan**.
+5. `npm install && npm run dev`, open http://localhost:3000, press **Load risky example** (or **Load real VPC plan**, a 23-resource plan from the community VPC module), then **Review plan**.
 
 ## Common failure modes
 

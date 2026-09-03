@@ -70,6 +70,11 @@ export function ChangeTable({ changes }: { changes: AssessedChange[] }) {
                       {p}
                     </span>
                   ))}
+                  {c.policyFloor && (
+                    <span className="text-xs" style={{ color: "var(--muted)" }} title="The policy's minimum_risk overrode the model's rating">
+                      raised to {c.risk} by {c.policyFloor}
+                    </span>
+                  )}
                 </div>
               </td>
               <td className="px-4 py-3 text-xs">

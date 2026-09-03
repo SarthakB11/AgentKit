@@ -13,11 +13,9 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Lamatic } from "lamatic";
-import kit from "../../lamatic.config";
-import { endpoint, env, loadDotEnvLocal } from "./env";
+import { loadDotEnvLocal } from "./env";
+import { reviewFacts } from "./review";
 import { parsePlan, extractFacts } from "../lib/plan-parse";
-import { validateReviewResult } from "../lib/validate";
 
 const EXIT = { allow: 0, "no-changes": 0, block: 1, "needs-approval": 2 } as const;
 
@@ -45,22 +43,7 @@ async function main() {
     return;
   }
 
-  const step = kit.steps.find((s) => s.id === "tf-plan-review");
-  if (!step || !("envKey" in step) || !step.envKey) throw new Error("lamatic.config.ts has no tf-plan-review step with an envKey.");
-
-  const client = new Lamatic({
-    endpoint: endpoint(),
-    projectId: env("LAMATIC_PROJECT_ID"),
-    apiKey: env("LAMATIC_API_KEY"),
-  });
-  const raw = (await client.executeFlow(env(step.envKey), {
-    changes: facts.facts.map((f) => JSON.stringify(f)),
-    totalChanges: facts.totalChanges,
-    summary: facts.summary,
-  })) as { status?: string; message?: string; result?: unknown };
-  if (raw?.status === "error" || raw?.message) throw new Error(`Lamatic rejected the request: ${raw.message ?? "unknown error"}`);
-
-  const result = validateReviewResult(raw?.result ?? raw);
+  const result = await reviewFacts(facts);
   console.log(
     JSON.stringify({
       verdict: result.verdict,

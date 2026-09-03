@@ -4,15 +4,17 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileJson, Play, ShieldAlert } from "lucide-react";
+import { FileJson, Network, Play, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+export type SampleName = "routine-plan" | "risky-plan" | "real-vpc-plan";
+
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  onLoadSample: (name: "routine-plan" | "risky-plan") => void;
+  onLoadSample: (name: SampleName) => void;
   onReview: () => void;
   busy: boolean;
 }
@@ -75,6 +77,10 @@ export function PlanInput({ value, onChange, onLoadSample, onReview, busy }: Pro
             <Button variant="outline" size="sm" disabled={busy} onClick={() => onLoadSample("risky-plan")}>
               <ShieldAlert aria-hidden="true" />
               Load risky example
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => onLoadSample("real-vpc-plan")}>
+              <Network aria-hidden="true" />
+              Load real VPC plan
             </Button>
           </div>
         </div>

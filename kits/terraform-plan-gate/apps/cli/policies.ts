@@ -7,7 +7,9 @@
  *   npm run policies                          # defaults built into the flow
  *   npm run policies -- ../assets/policies.json   # your own set, same shape
  *
- * A policy is { policy_id, title, text }. Loading appends to the store: to
+ * A policy is { policy_id, title, text, minimum_risk? }. minimum_risk is a
+ * floor: a change that cites the policy is rated at least that level, whatever
+ * the model said. Loading appends to the store: to
  * change the set, delete the tfpolicies store in Studio first, then run this
  * once. The Index node recreates the store.
  */
@@ -17,10 +19,15 @@ import { Lamatic } from "lamatic";
 import kit from "../../lamatic.config";
 import { endpoint, env, loadDotEnvLocal } from "./env";
 
+const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+type RiskLevel = (typeof RISK_LEVELS)[number];
+
 interface Policy {
   policy_id: string;
   title: string;
   text: string;
+  /** Floor for any change that cites this policy. Defaults to "low" (no floor). */
+  minimum_risk?: RiskLevel;
 }
 
 function readPolicies(file: string): Policy[] {
@@ -29,7 +36,7 @@ function readPolicies(file: string): Policy[] {
   const seen = new Set<string>();
   return doc.map((p, i) => {
     if (!p || typeof p !== "object") throw new Error(`policies[${i}] is not an object`);
-    const { policy_id, title, text } = p as Record<string, unknown>;
+    const { policy_id, title, text, minimum_risk } = p as Record<string, unknown>;
     if (typeof policy_id !== "string" || typeof title !== "string" || typeof text !== "string") {
       throw new Error(`policies[${i}] needs string policy_id, title and text`);
     }
@@ -37,7 +44,10 @@ function readPolicies(file: string): Policy[] {
     if (!id || !title.trim() || !text.trim()) throw new Error(`policies[${i}] has an empty policy_id, title or text`);
     if (seen.has(id)) throw new Error(`policies[${i}] repeats policy_id ${id}; ids must be unique`);
     seen.add(id);
-    return { policy_id: id, title: title.trim(), text: text.trim() };
+    if (minimum_risk !== undefined && !(RISK_LEVELS as readonly unknown[]).includes(minimum_risk)) {
+      throw new Error(`policies[${i}] minimum_risk must be one of ${RISK_LEVELS.join(", ")}`);
+    }
+    return { policy_id: id, title: title.trim(), text: text.trim(), ...(minimum_risk !== undefined ? { minimum_risk: minimum_risk as RiskLevel } : {}) };
   });
 }
 

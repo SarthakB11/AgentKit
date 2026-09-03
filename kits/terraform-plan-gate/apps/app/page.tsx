@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { reviewPlan } from "../actions/orchestrate";
 import type { Decision, ReviewResult } from "../lib/types";
-import { PlanInput } from "../components/PlanInput";
+import { PlanInput, type SampleName } from "../components/PlanInput";
 import { VerdictBanner } from "../components/VerdictBanner";
 import { ChangeTable } from "../components/ChangeTable";
 import { ReviewComment } from "../components/ReviewComment";
@@ -21,7 +21,7 @@ export default function Page() {
   // Same rule for reviews: a verdict is shown only for the plan that is still in the box.
   const reviewRequest = useRef(0);
 
-  async function loadSample(name: "routine-plan" | "risky-plan") {
+  async function loadSample(name: SampleName) {
     const id = ++sampleRequest.current;
     setResult(null);
     setDecision(null);

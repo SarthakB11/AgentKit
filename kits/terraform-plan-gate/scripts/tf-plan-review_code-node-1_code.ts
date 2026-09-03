@@ -24,6 +24,15 @@ const RISK_LEVELS = ["critical", "high", "medium", "low"];
 const riskOf = v => (typeof v === "string" && RISK_LEVELS.includes(v)) ? v : null;
 const CATEGORIES = new Set(["data-loss", "availability", "security-exposure", "privilege", "cost", "drift", "routine"]);
 const knownPolicyIds = new Set((Array.isArray(policies) ? policies : []).map(p => p && p.policy_id).filter(Boolean));
+// Severity floors come from the policy records, not from the model: a change
+// that cites a policy is rated at least that policy's minimum_risk.
+const floors = new Map();
+for (const p of (Array.isArray(policies) ? policies : [])) {
+  if (p && p.policy_id && riskOf(p.minimum_risk)) {
+    const prev = floors.get(String(p.policy_id));
+    if (!prev || RISKS[p.minimum_risk] > RISKS[prev]) floors.set(String(p.policy_id), p.minimum_risk);
+  }
+}
 const knownAddresses = new Set(facts.map(f => String(f.address)));
 
 const list = Array.isArray(assessed && assessed.assessments) ? assessed.assessments : [];
@@ -37,8 +46,15 @@ for (const a of list) {
 
 const changes = facts.map(f => {
   const a = byAddress.get(String(f.address));
-  const risk = (a && !f.invalidFact && riskOf(a.risk)) || "unclassified";
+  let risk = (a && !f.invalidFact && riskOf(a.risk)) || "unclassified";
   const policyIds = a && Array.isArray(a.policyIds) ? a.policyIds.filter(id => knownPolicyIds.has(id)) : [];
+  let policyFloor = null;
+  if (risk !== "unclassified") {
+    for (const id of policyIds) {
+      const floor = floors.get(id);
+      if (floor && RISKS[floor] > RISKS[risk]) { risk = floor; policyFloor = id; }
+    }
+  }
   const confidence = a && typeof a.confidence === "number" && isFinite(a.confidence) ? Math.min(1, Math.max(0, a.confidence)) : null;
   return {
     address: f.address, type: f.type || null, actions: Array.isArray(f.actions) ? f.actions : [], actionReason: f.actionReason || null,
@@ -46,6 +62,7 @@ const changes = facts.map(f => {
     risk,
     category: a && CATEGORIES.has(a.category) ? a.category : null,
     policyIds,
+    policyFloor,
     reason: a && typeof a.reason === "string" ? a.reason : null,
     mitigation: a && typeof a.mitigation === "string" ? a.mitigation : null,
     confidence
@@ -79,7 +96,7 @@ for (const p of (Array.isArray(policies) ? policies : [])) {
   const key = id || `unnamed-${seenPolicies.size}`;
   const prev = seenPolicies.get(key);
   if (!prev || (certainty !== null && (prev.certainty === null || certainty > prev.certainty))) {
-    seenPolicies.set(key, { policyId: id, title: p && p.title ? String(p.title) : null, certainty });
+    seenPolicies.set(key, { policyId: id, title: p && p.title ? String(p.title) : null, certainty, minimumRisk: (id && floors.get(id)) || null });
   }
 }
 const policiesConsulted = [...seenPolicies.values()];

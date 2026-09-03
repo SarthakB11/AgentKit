@@ -13,7 +13,8 @@
     "start": "next start",
     "test": "tsx --test lib/plan-parse.test.ts lib/validate.test.ts lib/endpoint.test.ts",
     "gate": "tsx cli/gate.ts",
-    "policies": "tsx cli/policies.ts"
+    "policies": "tsx cli/policies.ts",
+    "eval": "tsx eval/run.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

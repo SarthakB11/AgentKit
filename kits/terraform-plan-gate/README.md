@@ -13,6 +13,7 @@ Paste a Terraform plan. Get back a verdict a reviewer can act on: **allow**, **n
 - **Every resource change scored** `low`, `medium`, `high` or `critical`, with a category (data loss, availability, security exposure, privilege, cost, drift, routine), the reasoning, and the concrete mitigation.
 - **Policy references.** Ten infrastructure policies ship with the kit (no public buckets, no admin ports open to the internet, stateful resources need a snapshot before destroy, and so on). The review flow retrieves the ones relevant to this plan from a Vector Store and cites them by id. Your own rules go in with one command: edit `assets/policies.json` and run `npm run policies -- ../assets/policies.json`.
 - **A verdict** computed from the counts, not asked of the model: any critical finding blocks; any high, medium or unassessed change needs approval; otherwise allow.
+- **Policy severity floors.** Each policy carries a `minimum_risk`. A change that cites a policy is rated at least that level, whatever the model said, and the table shows which policy raised it. Your written rules set the floor of the verdict; the model only ranks within it.
 - **A review comment** in markdown, written the way a platform engineer writes one: verdict sentence, findings in order of severity, a before-apply checklist, and the routine changes listed in one line. Changes the model did not assess are appended by code as a "Needs assessment" list, never silently dropped.
 - **A decision record.** Approving a needs-approval plan or overriding a block requires a written justification; the app produces a JSON record with the verdict, the action, the reason and a timestamp to paste into the PR or a ticket.
 
@@ -40,7 +41,7 @@ Two boundaries are deliberate:
 
 ## Quickstart
 
-1. In Lamatic Studio, recreate the two flows from `flows/` (they are Studio's own export). Re-select your model credentials on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes: the `credentialId` values in `model-configs/` belong to the author's project.
+1. In Lamatic Studio, create a Vector Store named `tfpolicies` (Data → Context Stores). The Index node would create it on first use, but a store created that way is not listed on the Data page, so you could not delete it later to reload a changed policy set. Then recreate the two flows from `flows/` (they are Studio's own export). Re-select your model credentials on the Vectorize, Index, Vector Search, Generate JSON and Generate Text nodes: the `credentialId` values in `model-configs/` belong to the author's project.
 2. Deploy `tf-policy-ingest` and run it once (Test in Studio with `{"run": "init", "policies": []}`, or `npm run policies` below). It embeds the ten default policies into the store.
 3. Deploy `tf-plan-review` and copy its Flow ID (three-dot menu → Copy Flow Id).
 
@@ -53,7 +54,7 @@ npm run dev
 
 The app is Next.js 15 with React 18, Tailwind v4 on CSS variables, shadcn-style components, react-hook-form with zod for the two forms, and lucide icons.
 
-Open http://localhost:3000 and press **Load risky example**. It is a plan that replaces a production Postgres instance with `skip_final_snapshot = true` and `deletion_protection = false`, opens SSH to the internet, disables a bucket's public access block, and creates a `*`/`*` IAM policy, mixed in with two routine updates. **Load routine example** is a plan with nothing above low.
+Open http://localhost:3000 and press **Load risky example**. It is a plan that replaces a production Postgres instance with `skip_final_snapshot = true` and `deletion_protection = false`, opens SSH to the internet, disables a bucket's public access block, and creates a `*`/`*` IAM policy, mixed in with two routine updates. **Load routine example** is a plan with nothing above low. **Load real VPC plan** is an unedited `terraform show -json` of a real configuration: `terraform-aws-modules/vpc` 5.x with a NAT gateway, plus a bastion security group open on port 22, an exports bucket with `force_destroy`, and a log group, 23 creates in all. It comes back `needs-approval` with the SSH rule and the bucket as the two findings and the other 21 as routine.
 
 ### Environment
 
@@ -69,7 +70,7 @@ All of them are server-side only and the SDK is called from `actions/orchestrate
 
 ### Your own policies
 
-The policy set is data, not flow configuration. `assets/policies.json` holds the ten defaults in the shape the ingest flow accepts, `{ policy_id, title, text }`. Edit it, add to it, or replace it, then load it:
+The policy set is data, not flow configuration. `assets/policies.json` holds the ten defaults in the shape the ingest flow accepts, `{ policy_id, title, text, minimum_risk }`. `minimum_risk` (`low`, `medium`, `high` or `critical`, default `low`) is the floor applied to any change that cites the policy. Edit it, add to it, or replace it, then load it:
 
 ```bash
 npm run policies -- ../assets/policies.json
@@ -87,6 +88,15 @@ npm test
 
 Runs the parser against both sample plans and hand-built edge cases (no-ops and data-source reads dropped, state files refused, deposed objects kept apart from their replacements, `removed` blocks flagged, the risky plan raises the expected flags, GCP and Azure rules get the same treatment as AWS, blast radius is flagged, oversized plans are refused, no sensitive value or tag crosses the boundary), the response validator against a recorded flow response in `lib/fixtures/` plus malformed and self-contradicting variants of it, and the HTTPS-only endpoint check.
 
+### Model regression suite
+
+```bash
+npm run eval            # exit 1 if any case fails
+npm run eval -- --json
+```
+
+The unit tests cover the deterministic side. `eval/cases/` covers the judgment side: eleven plans (public bucket ACL, database destroy with a snapshot, all-ports security group, GCP SSH firewall, encryption turned off, AdministratorAccess attached, an instance replacement, a tags-only update, and the three bundled samples), each with the verdict and per-change expectations a reviewer would insist on: a verdict or range of verdicts, a minimum or maximum risk per address, and the policy id that must be cited. Run it against the deployed flow after changing a prompt, a policy, the model, or the parser. Expectations are loose where the model has latitude and strict where it does not.
+
 ## Using it from CI
 
 The app is the reviewer's view. `apps/cli/gate.ts` is the same gate for a pipeline:
@@ -100,6 +110,12 @@ npm run gate -- ../../../plan.json --comment
 It prints one JSON line (`verdict`, `counts`, the non-low findings) followed by the review comment, and exits `0` for allow, `2` for needs-approval, `1` for block, `3` on a configuration error. The CLI reads the same `LAMATIC_*` variables from the environment or `apps/.env.local`.
 
 `apps/ci/terraform-plan-gate.yml` is a ready GitHub Actions workflow: copy it into `.github/workflows/` of the repository that holds your Terraform, add the four `LAMATIC_*` secrets, and every pull request that touches `.tf` files gets the review comment posted on it and the job fails on `block`. `needs-approval` leaves the comment and passes the job, so the human still decides.
+
+## Other pipelines
+
+- **Atlantis.** Add a custom workflow step after `plan`: `terraform show -json $PLANFILE > plan.json && npm --prefix /opt/agentkit/kits/terraform-plan-gate/apps run -s gate -- plan.json --comment`, with the `LAMATIC_*` variables in the Atlantis environment. Exit code 1 fails the plan step, so a blocked plan never reaches `atlantis apply`; the comment output is the text to post.
+- **Terraform Cloud / HCP Terraform.** Run tasks call an HTTPS endpoint with the plan JSON; the same parse-and-review path runs in `apps/actions/orchestrate.ts`, so a small route that reads the run task payload, fetches the plan JSON export and calls `reviewPlan()` is all that is missing. Not included here because run tasks need a public callback URL and HMAC verification that belong to your deployment.
+- **OpenTofu.** `tofu show -json tfplan` produces the same format; nothing changes.
 
 ## Deploying
 
@@ -126,11 +142,13 @@ kits/terraform-plan-gate/
     ├── lib/validate.test.ts       contract tests against a recorded response
     ├── lib/endpoint.ts            HTTPS-only check and no-redirect guard for the endpoint
     ├── cli/gate.ts                the CI entry point
+    ├── cli/review.ts              one review request, shared by the CLI and the eval suite
+    ├── eval/run.ts, eval/cases/   model regression suite
     ├── cli/policies.ts            load your policy set into the store
     ├── ci/terraform-plan-gate.yml GitHub Actions workflow to copy
     ├── components/                input, verdict banner, change table, comment, decision
     ├── components/ui/             shadcn-style Button, Textarea, Label
-    └── public/samples/            the two example plans
+    └── public/samples/            the three example plans (two hand-written, one real)
 ```
 
 ## Limitations
