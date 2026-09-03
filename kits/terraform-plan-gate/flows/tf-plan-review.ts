@@ -201,7 +201,7 @@ export const nodes = [
       "values": {
         "id": "responseNode_triggerNode",
         "nodeName": "API Response",
-        "outputMapping": "{\n  \"verdict\": \"{{codeNode_1.output.verdict}}\",\n  \"summary\": \"{{codeNode_1.output.summary}}\",\n  \"totalChanges\": \"{{codeNode_1.output.totalChanges}}\",\n  \"counts\": \"{{codeNode_1.output.counts}}\",\n  \"changes\": \"{{codeNode_1.output.changes}}\",\n  \"reviewComment\": \"{{codeNode_1.output.reviewComment}}\",\n  \"policiesConsulted\": \"{{codeNode_1.output.policiesConsulted}}\"\n}"
+        "outputMapping": "{\n  \"verdict\": \"{{codeNode_1.output.verdict}}\",\n  \"summary\": \"{{codeNode_1.output.summary}}\",\n  \"totalChanges\": \"{{codeNode_1.output.totalChanges}}\",\n  \"counts\": \"{{codeNode_1.output.counts}}\",\n  \"changes\": \"{{codeNode_1.output.changes}}\",\n  \"reviewComment\": \"{{codeNode_1.output.reviewComment}}\",\n  \"policiesConsulted\": \"{{codeNode_1.output.policiesConsulted}}\",\n  \"droppedAssessments\": \"{{codeNode_1.output.droppedAssessments}}\"\n}"
       }
     }
   }

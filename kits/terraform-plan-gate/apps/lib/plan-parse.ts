@@ -65,7 +65,9 @@ export interface PlanFacts {
 
 /**
  * Attributes whose *values* are safe and useful to show a reviewer. Everything
- * else crosses the boundary as a name only.
+ * else crosses the boundary as a name only. Tags are deliberately absent: they
+ * are free-form maps that people put credentials and internal hostnames in,
+ * so only the derived `production` flag is sent, never the map itself.
  */
 const SAFE_VALUE_ATTRIBUTES = new Set([
   "acl",
@@ -97,8 +99,6 @@ const SAFE_VALUE_ATTRIBUTES = new Set([
   "cidr_ipv6",
   "ingress",
   "egress",
-  "tags",
-  "tags_all",
   "versioning",
   "lifecycle",
   "min_size",
@@ -122,6 +122,34 @@ const LONG_LIVED_COMPUTE = [
 ];
 
 const ADMIN_PORTS = new Set([22, 3389, 5432, 3306, 6379, 27017, 9200, 1433, 5984]);
+
+/**
+ * Plain-language phrasing for each flag. The summary doubles as the Vector
+ * Search query for the policy store, so it should read like the policies do.
+ */
+const FLAG_PHRASES: Record<string, string> = {
+  destroy: "destroying a resource",
+  replace: "replacing a resource (delete then create)",
+  stateful: "a stateful resource such as a database, bucket or table",
+  "compute-replacement": "replacing long-lived compute, a rollout with downtime",
+  "public-acl": "a publicly readable storage ACL",
+  "publicly-accessible": "a publicly accessible database",
+  "public-access-block-disabled": "a public access block being disabled on a bucket",
+  "deletion-protection-removed": "deletion protection being removed",
+  "deletion-protection-off": "deletion protection off on a destroyed resource",
+  "skip-final-snapshot": "skipping the final snapshot",
+  "force-destroy": "force_destroy on a data store",
+  "encryption-disabled": "encryption being disabled",
+  "customer-kms-key-removed": "a customer-managed KMS key being removed",
+  "iam-wildcard": "an IAM policy granting wildcard actions and resources",
+  "iam-admin-access": "AdministratorAccess being attached",
+  production: "a production resource",
+};
+
+function phraseFor(flag: string): string {
+  if (flag.startsWith("open-to-internet:")) return `an administrative or service port (${flag.split(":")[1]}) open to the internet 0.0.0.0/0`;
+  return FLAG_PHRASES[flag] ?? flag;
+}
 
 export function parsePlan(text: string): TerraformPlan {
   let doc: unknown;
@@ -235,7 +263,7 @@ function flagsFor(rc: ResourceChange, kind: ChangeFact["kind"], values: Record<s
   if (before.deletion_protection === true && after.deletion_protection === false) flags.add("deletion-protection-removed");
   else if (after.deletion_protection === false && (kind === "destroy" || kind === "replace")) flags.add("deletion-protection-off");
   if (after.skip_final_snapshot === true || before.skip_final_snapshot === true) flags.add("skip-final-snapshot");
-  if (after.force_destroy === true) flags.add("force-destroy");
+  if (after.force_destroy === true || (kind === "destroy" && before.force_destroy === true)) flags.add("force-destroy");
 
   const encBefore = before.storage_encrypted ?? before.encrypted;
   const encAfter = after.storage_encrypted ?? after.encrypted;
@@ -317,7 +345,10 @@ export function extractFacts(plan: TerraformPlan): PlanFacts {
       .flatMap((f) => f.flags.filter((x) => x !== "production").map((x) => `${f.address} ${x}`))
       .slice(0, 12)
       .join("; ") || "none") +
-    ".";
+    ". " +
+    (flagged > 0
+      ? "Policy topics touched: " + [...new Set(facts.flatMap((f) => f.flags.map(phraseFor)))].join("; ") + "."
+      : "");
 
   return { terraformVersion: plan.terraform_version ?? null, totalChanges: facts.length, facts, counts, summary };
 }

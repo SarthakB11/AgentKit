@@ -2,12 +2,14 @@
 
 import { parsePlan, extractFacts } from "../lib/plan-parse";
 import { getLamaticClient, flowIdFor } from "../lib/lamatic-client";
+import { validateReviewResult } from "../lib/validate";
 import type { ReviewResult, ReviewResponse } from "../lib/types";
 
 /**
  * The SDK reports failures as a value — `{ status: "error", message }` — rather
  * than throwing, so check for that before unwrapping. On success the payload is
- * either the API Response body directly or wrapped in `result`.
+ * either the API Response body directly or wrapped in `result`; the body is
+ * then validated field by field before it can reach the UI.
  */
 function unwrap(raw: unknown): ReviewResult {
   const r = raw as { status?: string; message?: string; statusCode?: number; result?: unknown } | null;
@@ -15,11 +17,7 @@ function unwrap(raw: unknown): ReviewResult {
     const code = r?.statusCode ? ` (HTTP ${r.statusCode})` : "";
     throw new Error(`Lamatic rejected the request${code}: ${r?.message ?? "unknown error"}`);
   }
-  const payload = (r?.result ?? r) as Partial<ReviewResult> | null;
-  if (!payload || typeof payload !== "object" || !payload.verdict || !Array.isArray(payload.changes)) {
-    throw new Error("The flow returned an unexpected shape — no `verdict` and `changes` in the response.");
-  }
-  return payload as ReviewResult;
+  return validateReviewResult(r?.result ?? r);
 }
 
 export async function reviewPlan(planText: string): Promise<ReviewResponse> {
@@ -39,12 +37,13 @@ export async function reviewPlan(planText: string): Promise<ReviewResponse> {
           changes: [],
           reviewComment: null,
           policiesConsulted: [],
+          droppedAssessments: 0,
         },
       };
     }
 
     const client = getLamaticClient();
-    const raw = await client.executeFlow(flowIdFor("step1"), {
+    const raw = await client.executeFlow(flowIdFor("tf-plan-review"), {
       // The trigger declares `changes` as [string]: Studio's schema accepts only
       // [] or [string] for arrays, so each fact crosses as JSON text and the
       // flow's assemble node parses it back.

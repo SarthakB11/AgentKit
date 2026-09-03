@@ -9,6 +9,11 @@
   --allow: #2dbf6b;
   --approve: #f2b544;
   --block: #ef5350;
+  --risk-high: #ff8a65;
+  --surface-deep: #0b0d11;
+  --accent: #3b82f6;
+  --on-accent: #ffffff;
+  --hover: #1f2430;
 }
 
 html,
@@ -42,14 +47,14 @@ code {
   margin: 0.4rem 0;
 }
 .prose-review code {
-  background: #0b0d11;
+  background: var(--surface-deep);
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
 }
 
 .btn-primary {
-  background: #3b82f6;
-  color: white;
+  background: var(--accent);
+  color: var(--on-accent);
   border-radius: 6px;
   padding: 0.45rem 0.9rem;
   font-size: 0.875rem;
@@ -65,5 +70,5 @@ code {
   font-size: 0.8rem;
 }
 .btn-secondary:hover {
-  background: #1f2430;
+  background: var(--hover);
 }

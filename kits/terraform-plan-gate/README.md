@@ -33,6 +33,7 @@ terraform show -json tfplan
 Two boundaries are deliberate:
 
 - **Secrets never leave the app.** Anything Terraform marks in `before_sensitive` / `after_sensitive`, plus any attribute whose name looks like a secret, crosses the boundary as a *name* only. Values are sent for a short safelist of security-relevant attributes (`acl`, `publicly_accessible`, `cidr_blocks`, `deletion_protection`, `skip_final_snapshot`, `force_destroy`, encryption and KMS fields, ports and protocols, tags). The test suite checks that a redacted password never appears in the payload.
+- **The model's output is checked before it counts.** The assemble node keeps one assessment per known resource address, drops any that name a resource not in the plan, accepts only the four risk levels and only policy ids that were actually retrieved, clamps confidence to 0–1, and counts anything unassessed as `unclassified`. The app validates the response shape again before rendering. The prompts wrap plan facts and policies in delimiters and state that text inside them is data, not instructions.
 - **Facts are computed, judgment is generated.** Which resources are stateful, which ports are open to the world, whether an IAM policy is `"*"` on `"*"`, whether a replace removes deletion protection in the same change: that is code, and it is tested. What the model adds is the ranking, the policy match, the explanation and the fix.
 
 ## Quickstart
@@ -71,7 +72,15 @@ Runs the parser against both sample plans: no-ops are dropped, the risky plan ra
 
 ## Using it from CI
 
-The app is the reviewer's view. The same flow can gate a pipeline directly: run `terraform show -json`, extract facts with `plan-parse.ts`, and call `executeWorkflow` on the project's GraphQL endpoint; fail the job when `verdict` is `block`, and post `reviewComment` on the PR when it is `needs-approval`. The request shape is in `apps/actions/orchestrate.ts`.
+The app is the reviewer's view. `apps/cli/gate.ts` is the same gate for a pipeline:
+
+```bash
+terraform plan -out tfplan && terraform show -json tfplan > plan.json
+cd kits/terraform-plan-gate/apps
+npm run gate -- ../../../plan.json --comment
+```
+
+It prints one JSON line (`verdict`, `counts`, the non-low findings) followed by the review comment, and exits `0` for allow, `2` for needs-approval, `1` for block, `3` on a configuration error. Post the comment on the pull request and fail the job on exit code `1`. The CLI reads the same four `LAMATIC_*` variables from the environment or `apps/.env.local`.
 
 ## Deploying
 
@@ -93,6 +102,8 @@ kits/terraform-plan-gate/
     ├── actions/orchestrate.ts     the only place the SDK is called
     ├── lib/plan-parse.ts          plan -> change facts (deterministic)
     ├── lib/plan-parse.test.ts     the tests above
+    ├── lib/validate.ts            response contract check
+    ├── cli/gate.ts                the CI entry point
     ├── components/                input, verdict banner, change table, comment, decision
     └── public/samples/            the two example plans
 ```

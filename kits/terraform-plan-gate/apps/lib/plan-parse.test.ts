@@ -47,6 +47,28 @@ test("sensitive values never cross the boundary", () => {
   assert.ok(!("password" in db.attributeValues));
 });
 
+test("tag maps never cross the boundary, only the derived production flag", () => {
+  const plan = JSON.parse(load("risky-plan.json"));
+  plan.resource_changes[5].change.after.tags = { environment: "production", db_url: "postgres://admin:hunter2@db.internal:5432/orders" };
+  const facts = extractFacts(plan);
+  const lg = facts.facts.find((f) => f.type === "aws_cloudwatch_log_group")!;
+  assert.ok(lg.flags.includes("production"));
+  assert.ok(!("tags" in lg.attributeValues) && !("tags_all" in lg.attributeValues));
+  assert.ok(!JSON.stringify(facts).includes("hunter2"), "a tag value leaked into the facts");
+});
+
+test("force_destroy is kept on deletes, where after is null", () => {
+  const plan = JSON.parse(load("routine-plan.json"));
+  plan.resource_changes.push({
+    address: "aws_s3_bucket.scratch", mode: "managed", type: "aws_s3_bucket", name: "scratch", provider_name: "registry.terraform.io/hashicorp/aws",
+    change: { actions: ["delete"], before: { bucket: "acme-scratch", force_destroy: true }, after: null, after_unknown: {}, before_sensitive: {}, after_sensitive: false },
+  });
+  const f = extractFacts(plan).facts.find((x) => x.address === "aws_s3_bucket.scratch")!;
+  assert.equal(f.kind, "destroy");
+  assert.ok(f.flags.includes("force-destroy"));
+  assert.ok(f.flags.includes("stateful"));
+});
+
 test("summary names the flagged resources", () => {
   const facts = extractFacts(parsePlan(load("risky-plan.json")));
   assert.match(facts.summary, /6 resource change\(s\)/);

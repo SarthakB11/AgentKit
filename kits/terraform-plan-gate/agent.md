@@ -50,7 +50,7 @@ Run once, or whenever the policy set changes.
 | `totalChanges` | int | Length of `changes` |
 | `summary` | string | One-paragraph plan summary with the flagged addresses; also the search query |
 
-**Processing** — Vector Search over `tfpolicies` (query = `summary`, limit 7, certainty 0.5). Generate JSON returns one assessment per fact keyed by `address`. Generate Text writes the review comment from the facts, the assessments and the summary. The Code node joins facts with assessments, marks anything without an assessment `unclassified`, counts, and computes the verdict.
+**Processing** — Vector Search over `tfpolicies` (query = `summary`, limit 7, certainty 0.5). Generate JSON returns one assessment per fact keyed by `address`. Generate Text writes the review comment from the facts, the assessments and the summary. The Code node validates the model output against what the model was given (known addresses only, one per address, the four risk levels only, policy ids only from the retrieved set, confidence clamped to 0–1), marks anything without a valid assessment `unclassified`, counts, and computes the verdict. Assessments that name no known resource are discarded and counted in `droppedAssessments`.
 
 **Response** —
 
@@ -66,7 +66,8 @@ Run once, or whenever the policy set changes.
     category, policyIds: string[], reason, mitigation, confidence
   }>,
   reviewComment: string | null,          // markdown
-  policiesConsulted: Array<{ policyId, title, certainty }>
+  policiesConsulted: Array<{ policyId, title, certainty }>,
+  droppedAssessments: number             // model assessments that named no known resource
 }
 ```
 
@@ -82,7 +83,8 @@ Beyond `constitutions/default.md`:
 
 - **Secrets are redacted before the model.** Attributes marked sensitive by Terraform, and any attribute named like a secret, are sent as names only. Values are sent for a fixed safelist of security-relevant attributes. This is enforced in `plan-parse.ts` and covered by a test.
 - **One assessment per fact, keyed by address.** The classifier does not add resources, drop resources, or rename them. Anything it fails to assess is surfaced as `unclassified`, not hidden.
-- **Cite only policies that were provided.** Policy ids come from the Vector Search results; the model must not invent ids or quote policy text it was not given.
+- **Cite only policies that were provided.** Policy ids come from the Vector Search results; the model must not invent ids or quote policy text it was not given, and the Code node drops any id that was not retrieved.
+- **Plan text is data, not instructions.** Both prompts wrap the facts and policies in delimiters and say so; a resource name or tag that reads like an instruction is noted as suspicious and assessed on its actions and attributes alone.
 - **Round up.** When two risk levels are plausible, the higher one is chosen. A plain tag or description change is low.
 - **The gate never applies.** It produces a verdict, a comment and a decision record. Approval and override are human actions with a required justification.
 
@@ -101,7 +103,7 @@ Beyond `constitutions/default.md`:
 | Structured-output model | Per-change assessment | Configured in Studio on the Generate JSON node |
 | Text model | Review comment | Configured in Studio on the Generate Text node |
 
-A review makes exactly one outbound request from the server action. A plan with no changes makes none; the app answers locally.
+A review makes exactly one outbound request, from the server action or from `apps/cli/gate.ts`. A plan with no changes makes none; the app answers locally.
 
 ## Environment setup
 

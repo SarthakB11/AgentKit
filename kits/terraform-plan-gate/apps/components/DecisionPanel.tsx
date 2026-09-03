@@ -41,14 +41,21 @@ export function DecisionPanel({
         {result.verdict === "no-changes" && "Nothing to decide."}
       </p>
       {needsText && result.verdict !== "no-changes" && (
-        <textarea
-          className="mt-3 h-24 w-full rounded-md border p-2 text-xs"
-          style={{ background: "#0b0d11", borderColor: "var(--border)" }}
-          placeholder="e.g. Snapshot orders-prod-2026-09-03 taken, change window 02:00 UTC agreed with payments on-call (R. Mehta)."
-          value={justification}
-          onChange={(e) => setJustification(e.target.value)}
-          disabled={!!decision}
-        />
+        <>
+          <label htmlFor="decision-justification" className="mt-3 block text-xs font-medium">
+            Justification
+          </label>
+          <textarea
+            id="decision-justification"
+            name="decision-justification"
+            className="mt-1 h-24 w-full rounded-md border p-2 text-xs"
+            style={{ background: "var(--surface-deep)", borderColor: "var(--border)" }}
+            placeholder="e.g. Snapshot orders-prod-2026-09-03 taken, change window 02:00 UTC agreed with payments on-call (R. Mehta)."
+            value={justification}
+            onChange={(e) => setJustification(e.target.value)}
+            disabled={!!decision}
+          />
+        </>
       )}
       {!decision && result.verdict !== "no-changes" && (
         <div className="mt-3 flex gap-2">
@@ -57,7 +64,7 @@ export function DecisionPanel({
             disabled={!canApprove}
             onClick={() => decide(result.verdict === "block" ? "overridden" : "approved")}
             className="rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ background: result.verdict === "block" ? "var(--block)" : "var(--allow)", color: "#0b0d11" }}
+            style={{ background: result.verdict === "block" ? "var(--block)" : "var(--allow)", color: "var(--surface-deep)" }}
           >
             {result.verdict === "block" ? "Override and approve" : "Approve"}
           </button>
@@ -72,7 +79,10 @@ export function DecisionPanel({
         </div>
       )}
       {decision && (
-        <pre className="mt-3 overflow-x-auto rounded-md border p-3 text-xs" style={{ background: "#0b0d11", borderColor: "var(--border)" }}>
+        <pre
+          className="mt-3 overflow-x-auto rounded-md border p-3 text-xs"
+          style={{ background: "var(--surface-deep)", borderColor: "var(--border)" }}
+        >
           {JSON.stringify(decision, null, 2)}
         </pre>
       )}

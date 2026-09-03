@@ -11,7 +11,12 @@ export function VerdictBanner({ result, decision }: { result: ReviewResult; deci
   const v = LABEL[result.verdict];
   const c = result.counts;
   return (
-    <div className="rounded-lg border p-4" style={{ borderColor: v.color, background: "var(--panel)" }}>
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-lg border p-4"
+      style={{ borderColor: v.color, background: "var(--panel)" }}
+    >
       <div className="flex flex-wrap items-baseline gap-4">
         <span className="text-xl font-bold tracking-wide" style={{ color: v.color }}>
           {v.text}
@@ -29,6 +34,9 @@ export function VerdictBanner({ result, decision }: { result: ReviewResult; deci
         <span>medium {c.medium}</span>
         <span>low {c.low}</span>
         <span>unclassified {c.unclassified}</span>
+        {result.droppedAssessments > 0 && (
+          <span>{result.droppedAssessments} model assessment(s) discarded for not matching a plan resource</span>
+        )}
         <span className="ml-auto">
           verdict is arithmetic: any critical → block; any high, medium or unclassified → needs approval
         </span>

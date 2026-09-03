@@ -12,9 +12,11 @@ export function PlanInput({ value, onChange, onLoadSample, onReview, busy }: Pro
   return (
     <section className="rounded-lg border p-4" style={{ background: "var(--panel)", borderColor: "var(--border)" }}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">Plan JSON</span>
+        <label htmlFor="plan-json" className="text-sm font-medium">
+          Plan JSON
+        </label>
         <span className="text-xs" style={{ color: "var(--muted)" }}>
-          terraform plan -out tfplan && terraform show -json tfplan &gt; plan.json
+          terraform plan -out tfplan &amp;&amp; terraform show -json tfplan &gt; plan.json
         </span>
         <div className="ml-auto flex gap-2">
           <button type="button" className="btn-secondary" onClick={() => onLoadSample("routine-plan")}>
@@ -26,8 +28,10 @@ export function PlanInput({ value, onChange, onLoadSample, onReview, busy }: Pro
         </div>
       </div>
       <textarea
+        id="plan-json"
+        name="plan-json"
         className="h-64 w-full resize-y rounded-md border p-3 text-xs leading-5"
-        style={{ background: "#0b0d11", borderColor: "var(--border)" }}
+        style={{ background: "var(--surface-deep)", borderColor: "var(--border)" }}
         spellCheck={false}
         placeholder='{ "format_version": "1.2", "resource_changes": [ ... ] }'
         value={value}

@@ -2,7 +2,7 @@ import type { AssessedChange, Risk } from "../lib/types";
 
 const RISK_COLOR: Record<Risk, string> = {
   critical: "var(--block)",
-  high: "#ff8a65",
+  high: "var(--risk-high)",
   medium: "var(--approve)",
   low: "var(--allow)",
   unclassified: "var(--muted)",
@@ -28,7 +28,10 @@ export function ChangeTable({ changes }: { changes: AssessedChange[] }) {
           {sorted.map((c) => (
             <tr key={c.address} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
               <td className="px-4 py-3">
-                <span className="rounded px-2 py-0.5 text-xs font-semibold" style={{ color: RISK_COLOR[c.risk], border: `1px solid ${RISK_COLOR[c.risk]}` }}>
+                <span
+                  className="rounded px-2 py-0.5 text-xs font-semibold"
+                  style={{ color: RISK_COLOR[c.risk], border: `1px solid ${RISK_COLOR[c.risk]}` }}
+                >
                   {c.risk}
                 </span>
                 {c.confidence !== null && (
@@ -45,26 +48,36 @@ export function ChangeTable({ changes }: { changes: AssessedChange[] }) {
               </td>
               <td className="px-4 py-3 text-xs">
                 {c.actions.join(" → ")}
-                {c.actionReason && (
-                  <div style={{ color: "var(--muted)" }}>{c.actionReason.replaceAll("_", " ")}</div>
-                )}
+                {c.actionReason && <div style={{ color: "var(--muted)" }}>{c.actionReason.replaceAll("_", " ")}</div>}
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
                   {c.flags.map((f) => (
-                    <span key={f} className="rounded px-1.5 py-0.5 text-xs" style={{ background: "#0b0d11", border: "1px solid var(--border)" }}>
+                    <span
+                      key={f}
+                      className="rounded px-1.5 py-0.5 text-xs"
+                      style={{ background: "var(--surface-deep)", border: "1px solid var(--border)" }}
+                    >
                       {f}
                     </span>
                   ))}
                   {c.policyIds.map((p) => (
-                    <span key={p} className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ border: "1px solid var(--approve)", color: "var(--approve)" }}>
+                    <span
+                      key={p}
+                      className="rounded px-1.5 py-0.5 text-xs font-medium"
+                      style={{ border: "1px solid var(--approve)", color: "var(--approve)" }}
+                    >
                       {p}
                     </span>
                   ))}
                 </div>
               </td>
               <td className="px-4 py-3 text-xs">
-                {c.reason ?? <span style={{ color: "var(--muted)" }}>The classifier returned no assessment for this change; it counts as unknown risk.</span>}
+                {c.reason ?? (
+                  <span style={{ color: "var(--muted)" }}>
+                    The classifier returned no assessment for this change; it counts as unknown risk.
+                  </span>
+                )}
                 {c.mitigation && c.mitigation.toLowerCase() !== "none needed" && (
                   <div className="mt-1" style={{ color: "var(--muted)" }}>
                     Fix: {c.mitigation}

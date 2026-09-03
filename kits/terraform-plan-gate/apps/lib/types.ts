@@ -24,7 +24,7 @@ export interface PolicyHit {
   certainty: number | null;
 }
 
-/** Exactly what the flow's API Response node returns. */
+/** Exactly what the flow's API Response node returns, after validation. */
 export interface ReviewResult {
   verdict: Verdict;
   summary: string;
@@ -33,6 +33,8 @@ export interface ReviewResult {
   changes: AssessedChange[];
   reviewComment: string | null;
   policiesConsulted: PolicyHit[];
+  /** Model assessments the flow discarded because they named no known resource. */
+  droppedAssessments: number;
 }
 
 export type ReviewResponse = { ok: true; data: ReviewResult } | { ok: false; error: string };

@@ -17,11 +17,16 @@ export default function Page() {
   const [decision, setDecision] = useState<Decision | null>(null);
 
   async function loadSample(name: "routine-plan" | "risky-plan") {
-    const res = await fetch(`/samples/${name}.json`);
-    setPlanText(await res.text());
     setResult(null);
     setDecision(null);
     setError(null);
+    try {
+      const res = await fetch(`/samples/${name}.json`);
+      if (!res.ok) throw new Error(`Sample ${name}.json could not be loaded (HTTP ${res.status}).`);
+      setPlanText(await res.text());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Sample ${name}.json could not be loaded.`);
+    }
   }
 
   async function run() {
